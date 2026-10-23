@@ -22,18 +22,30 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_lim
 app = FastAPI(
     title="CivicFault API",
     description="Community Infrastructure & Public Utility Fault Tracker",
-    version="1.2.0",
+    version="1.2.1",
     docs_url="/docs",
     redoc_url="/redoc",
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-origins = settings.cors_origins_list if settings.cors_origins_list else ["*"]
+# Always allow local + production Vercel app; merge with CORS_ORIGINS env
+_default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://civicfault.vercel.app",
+]
+origins = list(
+    dict.fromkeys(_default_origins + (settings.cors_origins_list or []))
+)
+if "*" in origins:
+    origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_credentials=origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -49,13 +61,11 @@ app.include_router(clusters.router, prefix="/api/v1")
 
 
 def _ensure_schema() -> None:
-    """Create tables. Migrate away from old PostGIS geometry column if present."""
     insp = inspect(engine)
     tables = insp.get_table_names()
 
     if "fault_reports" in tables:
         cols = {c["name"] for c in insp.get_columns("fault_reports")}
-        # Old schema had geometry `location` and no latitude/longitude
         if "location" in cols and "latitude" not in cols:
             logger.warning("Migrating fault_reports away from PostGIS geometry column")
             with engine.begin() as conn:
@@ -78,7 +88,7 @@ def on_startup() -> None:
 def root():
     return {
         "name": "CivicFault",
-        "version": "1.2.0",
+        "version": "1.2.1",
         "docs": "/docs",
         "health": "/api/v1/health",
     }
