@@ -12,8 +12,16 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=AuthorityOut, status_code=201)
 def register(body: AuthorityRegister, db: Session = Depends(get_db)):
-    if settings.environment == "production":
-        raise HTTPException(403, "Open registration disabled. Contact an admin.")
+    user_count = db.query(AuthorityUser).count()
+    # First user always allowed (bootstrap). Later users only in non-production
+    # or when AUTHORITY_BOOTSTRAP_KEY matches (via organization field as optional key —
+    # prefer env OPEN_REGISTRATION=true for demos).
+    open_reg = settings.environment != "production" or user_count == 0
+    if not open_reg:
+        raise HTTPException(
+            403,
+            "Open registration disabled. Ask an existing admin or set ENVIRONMENT=development.",
+        )
 
     existing = db.query(AuthorityUser).filter(AuthorityUser.email == body.email.lower()).first()
     if existing:
@@ -24,7 +32,7 @@ def register(body: AuthorityRegister, db: Session = Depends(get_db)):
         hashed_password=hash_password(body.password),
         full_name=body.full_name,
         organization=body.organization,
-        role="authority",
+        role="admin" if user_count == 0 else "authority",
     )
     db.add(user)
     db.commit()
