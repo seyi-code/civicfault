@@ -1,10 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { fetchReports, mediaUrl } from "@/lib/api";
 import type { FaultReport } from "@/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Loader2 } from "lucide-react";
+
+const ReportsMap = dynamic(
+  () => import("@/components/ReportsMap").then((m) => m.ReportsMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-72 sm:h-96 rounded-2xl bg-slate-100 animate-pulse border border-slate-200" />
+    ),
+  }
+);
 
 export default function DashboardPage() {
   const [items, setItems] = useState<FaultReport[]>([]);
@@ -29,6 +40,12 @@ export default function DashboardPage() {
         {loading ? "Loading…" : `${total} public report${total === 1 ? "" : "s"}`}
       </p>
 
+      {!loading && items.length > 0 && (
+        <div className="mb-8">
+          <ReportsMap reports={items} />
+        </div>
+      )}
+
       {loading && (
         <div className="flex justify-center py-16 text-slate-400">
           <Loader2 className="w-8 h-8 animate-spin" />
@@ -36,7 +53,7 @@ export default function DashboardPage() {
       )}
 
       {error && (
-        <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+        <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-4">
           {error}
         </div>
       )}

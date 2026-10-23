@@ -36,12 +36,15 @@ export default function RootLayout({
               <AlertTriangle className="text-amber-500 w-6 h-6" />
               <span className="font-bold text-lg tracking-tight">CivicFault</span>
             </Link>
-            <nav className="flex gap-5 text-sm font-medium text-slate-600">
+            <nav className="flex gap-4 sm:gap-5 text-sm font-medium text-slate-600">
               <Link href="/" className="hover:text-slate-900 transition">
                 Report
               </Link>
               <Link href="/dashboard" className="hover:text-slate-900 transition">
                 Dashboard
+              </Link>
+              <Link href="/authority" className="hover:text-slate-900 transition">
+                Authority
               </Link>
             </nav>
           </div>
