@@ -1,8 +1,10 @@
 from datetime import datetime
 from math import ceil
 from typing import Annotated, Optional
+import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from geoalchemy2 import WKTElement
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from slowapi import Limiter
@@ -23,20 +25,24 @@ from app.core.security import get_current_authority
 from app.core.config import settings
 from app.models.user import AuthorityUser
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["reports"])
 limiter = Limiter(key_func=get_remote_address)
 
 
 def _row_to_response(db: Session, report: FaultReport) -> FaultReportResponse:
-    loc = db.execute(
-        text(
-            "SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng "
-            "FROM fault_reports WHERE id = :id"
-        ),
-        {"id": report.id},
-    ).fetchone()
-    lat = float(loc.lat) if loc else 0.0
-    lng = float(loc.lng) if loc else 0.0
+    try:
+        loc = db.execute(
+            text(
+                "SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng "
+                "FROM fault_reports WHERE id = :id"
+            ),
+            {"id": report.id},
+        ).fetchone()
+        lat = float(loc.lat) if loc and loc.lat is not None else 0.0
+        lng = float(loc.lng) if loc and loc.lng is not None else 0.0
+    except Exception:
+        lat, lng = 0.0, 0.0
     return FaultReportResponse(
         id=report.id,
         category=report.category,
@@ -66,34 +72,49 @@ async def create_report(
     description: Annotated[Optional[str], Form()] = None,
     db: Session = Depends(get_db),
 ):
-    image_url, image_bytes = await save_upload(file)
-    category, confidence = pipeline.predict_category(image_bytes)
-    cluster_id = assign_cluster(db, latitude, longitude, category)
+    try:
+        image_url, image_bytes = await save_upload(file)
+        category, confidence = pipeline.predict_category(image_bytes)
+        try:
+            cluster_id = assign_cluster(db, latitude, longitude, category)
+        except Exception as exc:
+            logger.warning("Clustering skipped: %s", exc)
+            cluster_id = None
 
-    is_public = settings.min_upvotes_for_public <= 0
+        is_public = settings.min_upvotes_for_public <= 0
+        point = WKTElement(f"POINT({longitude} {latitude})", srid=4326)
 
-    report = FaultReport(
-        category=category,
-        confidence=confidence,
-        image_url=image_url,
-        description=description,
-        status="pending",
-        location=f"SRID=4326;POINT({longitude} {latitude})",
-        cluster_id=cluster_id,
-        upvote_count=0,
-        is_public=is_public,
-    )
-    db.add(report)
-    db.commit()
-    db.refresh(report)
-
-    if report.cluster_id is None:
-        report.cluster_id = report.id
+        report = FaultReport(
+            category=category,
+            confidence=confidence,
+            image_url=image_url,
+            description=description,
+            status="pending",
+            location=point,
+            cluster_id=cluster_id,
+            upvote_count=0,
+            is_public=is_public,
+        )
         db.add(report)
         db.commit()
         db.refresh(report)
 
-    return _row_to_response(db, report)
+        if report.cluster_id is None:
+            report.cluster_id = report.id
+            db.add(report)
+            db.commit()
+            db.refresh(report)
+
+        return _row_to_response(db, report)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("create_report failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {str(exc)[:500]}",
+        ) from exc
 
 
 @router.get("", response_model=FaultReportListResponse)
