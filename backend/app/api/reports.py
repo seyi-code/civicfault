@@ -4,8 +4,6 @@ from typing import Annotated, Optional
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
-from geoalchemy2 import WKTElement
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -30,19 +28,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 limiter = Limiter(key_func=get_remote_address)
 
 
-def _row_to_response(db: Session, report: FaultReport) -> FaultReportResponse:
-    try:
-        loc = db.execute(
-            text(
-                "SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng "
-                "FROM fault_reports WHERE id = :id"
-            ),
-            {"id": report.id},
-        ).fetchone()
-        lat = float(loc.lat) if loc and loc.lat is not None else 0.0
-        lng = float(loc.lng) if loc and loc.lng is not None else 0.0
-    except Exception:
-        lat, lng = 0.0, 0.0
+def _row_to_response(report: FaultReport) -> FaultReportResponse:
     return FaultReportResponse(
         id=report.id,
         category=report.category,
@@ -50,8 +36,8 @@ def _row_to_response(db: Session, report: FaultReport) -> FaultReportResponse:
         image_url=report.image_url,
         description=report.description,
         status=report.status,
-        latitude=lat,
-        longitude=lng,
+        latitude=float(report.latitude),
+        longitude=float(report.longitude),
         cluster_id=report.cluster_id or report.id,
         severity=report.severity,
         upvote_count=report.upvote_count or 0,
@@ -75,14 +61,15 @@ async def create_report(
     try:
         image_url, image_bytes = await save_upload(file)
         category, confidence = pipeline.predict_category(image_bytes)
+
         try:
             cluster_id = assign_cluster(db, latitude, longitude, category)
         except Exception as exc:
             logger.warning("Clustering skipped: %s", exc)
+            db.rollback()
             cluster_id = None
 
         is_public = settings.min_upvotes_for_public <= 0
-        point = WKTElement(f"POINT({longitude} {latitude})", srid=4326)
 
         report = FaultReport(
             category=category,
@@ -90,7 +77,8 @@ async def create_report(
             image_url=image_url,
             description=description,
             status="pending",
-            location=point,
+            latitude=latitude,
+            longitude=longitude,
             cluster_id=cluster_id,
             upvote_count=0,
             is_public=is_public,
@@ -105,7 +93,7 @@ async def create_report(
             db.commit()
             db.refresh(report)
 
-        return _row_to_response(db, report)
+        return _row_to_response(report)
     except HTTPException:
         raise
     except Exception as exc:
@@ -143,12 +131,10 @@ def list_reports(
         try:
             min_lng, min_lat, max_lng, max_lat = [float(x) for x in bbox.split(",")]
             q = q.filter(
-                text(
-                    "ST_Within(location::geometry, "
-                    "ST_MakeEnvelope(:min_lng, :min_lat, :max_lng, :max_lat, 4326))"
-                ).bindparams(
-                    min_lng=min_lng, min_lat=min_lat, max_lng=max_lng, max_lat=max_lat
-                )
+                FaultReport.longitude >= min_lng,
+                FaultReport.longitude <= max_lng,
+                FaultReport.latitude >= min_lat,
+                FaultReport.latitude <= max_lat,
             )
         except ValueError:
             raise HTTPException(400, "Invalid bbox format")
@@ -161,7 +147,7 @@ def list_reports(
         .all()
     )
     return FaultReportListResponse(
-        items=[_row_to_response(db, r) for r in items],
+        items=[_row_to_response(r) for r in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -174,7 +160,7 @@ def get_report(report_id: int, db: Session = Depends(get_db)):
     report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
     if not report:
         raise HTTPException(404, "Report not found")
-    return _row_to_response(db, report)
+    return _row_to_response(report)
 
 
 @router.patch("/{report_id}/status", response_model=FaultReportResponse)
@@ -194,7 +180,7 @@ def update_status(
     db.add(report)
     db.commit()
     db.refresh(report)
-    return _row_to_response(db, report)
+    return _row_to_response(report)
 
 
 @router.post("/{report_id}/upvote", response_model=FaultReportResponse)
@@ -225,4 +211,4 @@ def upvote_report(
     db.add(report)
     db.commit()
     db.refresh(report)
-    return _row_to_response(db, report)
+    return _row_to_response(report)
