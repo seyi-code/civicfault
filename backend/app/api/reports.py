@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from datetime import datetime
 from math import ceil
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import text
@@ -59,13 +57,13 @@ def _row_to_response(db: Session, report: FaultReport) -> FaultReportResponse:
 
 
 @router.post("", response_model=FaultReportResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit(settings.rate_limit_reports)
+@limiter.limit("20/minute")
 async def create_report(
     request: Request,
-    latitude: float = Form(..., ge=-90, le=90),
-    longitude: float = Form(..., ge=-180, le=180),
-    description: Optional[str] = Form(None),
-    file: UploadFile = File(...),
+    latitude: Annotated[float, Form(ge=-90, le=90)],
+    longitude: Annotated[float, Form(ge=-180, le=180)],
+    file: Annotated[UploadFile, File()],
+    description: Annotated[Optional[str], Form()] = None,
     db: Session = Depends(get_db),
 ):
     image_url, image_bytes = await save_upload(file)
@@ -111,7 +109,7 @@ def list_reports(
 ):
     q = db.query(FaultReport)
     if public_only:
-        q = q.filter(FaultReport.is_public == True)
+        q = q.filter(FaultReport.is_public == True)  # noqa: E712
     if category:
         q = q.filter(FaultReport.category == category)
     if status_filter:
