@@ -1,8 +1,10 @@
-"""Spatial clustering of reports using PostGIS."""
-from __future__ import annotations
+"""Spatial clustering without PostGIS (haversine approximation)."""
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
 from app.core.config import settings
+
 
 def assign_cluster(
     db: Session,
@@ -11,27 +13,45 @@ def assign_cluster(
     category: str,
     radius_meters: float | None = None,
 ) -> int | None:
+    """
+    Find an open report of the same category within radius_meters.
+    Uses haversine distance so it works on plain PostgreSQL.
+    """
     radius = radius_meters if radius_meters is not None else settings.cluster_radius_meters
-    lock_key = abs(hash(category)) % 2_147_483_647
-    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+    # Approximate degrees for a quick prefilter (1 deg lat ~ 111km)
+    deg = max(radius / 111_000.0, 0.0001)
+
     query = text(
         """
         SELECT id, COALESCE(cluster_id, id) AS cluster_id
         FROM fault_reports
         WHERE category = :category
           AND status NOT IN ('resolved', 'rejected')
-          AND ST_DWithin(
-                location::geography,
-                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
-                :radius
-              )
+          AND latitude BETWEEN :lat - :deg AND :lat + :deg
+          AND longitude BETWEEN :lng - :deg AND :lng + :deg
+          AND (
+            6371000 * 2 * ASIN(SQRT(
+              POWER(SIN(RADIANS((latitude - :lat) / 2)), 2) +
+              COS(RADIANS(:lat)) * COS(RADIANS(latitude)) *
+              POWER(SIN(RADIANS((longitude - :lng) / 2)), 2)
+            ))
+          ) <= :radius
         ORDER BY created_at ASC
         LIMIT 1
         """
     )
     row = db.execute(
-        query, {"category": category, "lng": longitude, "lat": latitude, "radius": radius},
+        query,
+        {
+            "category": category,
+            "lat": latitude,
+            "lng": longitude,
+            "deg": deg,
+            "radius": radius,
+        },
     ).fetchone()
+
     if row:
         return int(row.cluster_id)
     return None

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -39,8 +37,8 @@ def list_clusters(
             mode() WITHIN GROUP (ORDER BY category) AS category,
             COUNT(*) AS report_count,
             mode() WITHIN GROUP (ORDER BY status) AS dominant_status,
-            ST_Y(ST_Centroid(ST_Collect(location::geometry))) AS latitude,
-            ST_X(ST_Centroid(ST_Collect(location::geometry))) AS longitude,
+            AVG(latitude) AS latitude,
+            AVG(longitude) AS longitude,
             MIN(created_at) AS first_seen,
             MAX(created_at) AS last_seen,
             (ARRAY_AGG(image_url ORDER BY created_at ASC))[1] AS image_url,
