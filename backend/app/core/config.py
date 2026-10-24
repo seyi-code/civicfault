@@ -42,6 +42,15 @@ class Settings(BaseSettings):
 
     min_upvotes_for_public: int = 0
 
+    # Payments — Paystack (primary for UG/NG/GH)
+    paystack_secret_key: Optional[str] = None
+    paystack_public_key: Optional[str] = None
+    paystack_callback_url: Optional[str] = None
+
+    # Flutterwave (optional alternate)
+    flutterwave_secret_key: Optional[str] = None
+    flutterwave_public_key: Optional[str] = None
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
