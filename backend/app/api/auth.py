@@ -13,9 +13,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/register", response_model=AuthorityOut, status_code=201)
 def register(body: AuthorityRegister, db: Session = Depends(get_db)):
     user_count = db.query(AuthorityUser).count()
-    # First user always allowed (bootstrap). Later users only in non-production
-    # or when AUTHORITY_BOOTSTRAP_KEY matches (via organization field as optional key —
-    # prefer env OPEN_REGISTRATION=true for demos).
     open_reg = settings.environment != "production" or user_count == 0
     if not open_reg:
         raise HTTPException(
@@ -33,6 +30,7 @@ def register(body: AuthorityRegister, db: Session = Depends(get_db)):
         full_name=body.full_name,
         organization=body.organization,
         role="admin" if user_count == 0 else "authority",
+        plan="free",
     )
     db.add(user)
     db.commit()
@@ -48,7 +46,11 @@ def login(body: AuthorityLogin, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(403, "Account inactive")
     token = create_access_token(subject=user.email, role=user.role)
-    return TokenResponse(access_token=token, role=user.role)
+    return TokenResponse(
+        access_token=token,
+        role=user.role,
+        plan=getattr(user, "plan", None) or "free",
+    )
 
 
 @router.get("/me", response_model=AuthorityOut)
