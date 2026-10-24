@@ -1,4 +1,4 @@
-import type { FaultReport, FaultReportList, ClusterSummary } from "@/types";
+import type { FaultReport, FaultReportList, ClusterSummary, Organization } from "@/types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -19,19 +19,17 @@ export async function fetchReports(page = 1): Promise<FaultReportList> {
   return res.json();
 }
 
-export async function fetchClusters(): Promise<ClusterSummary[]> {
-  const res = await fetch(`${API_BASE}/api/v1/clusters?min_reports=1&limit=100`, {
+export async function fetchWorkspaceReports(token: string): Promise<FaultReportList> {
+  const res = await fetch(`${API_BASE}/api/v1/reports/workspace`, {
+    headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
-  if (!res.ok) throw new Error(`Failed to load clusters (${res.status})`);
+  if (!res.ok) throw new Error(`Failed to load workspace (${res.status})`);
   return res.json();
 }
 
 export async function createReport(form: FormData): Promise<FaultReport> {
-  const res = await fetch(`${API_BASE}/api/v1/reports`, {
-    method: "POST",
-    body: form,
-  });
+  const res = await fetch(`${API_BASE}/api/v1/reports`, { method: "POST", body: form });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail =
@@ -86,7 +84,11 @@ export async function updateReportStatus(
   return data;
 }
 
-export async function initPaystack(token: string, plan_key = "authority_monthly") {
+export async function initPayment(
+  token: string,
+  plan_key = "authority_monthly",
+  provider: "paystack" | "flutterwave" = "paystack"
+) {
   const res = await fetch(`${API_BASE}/api/v1/billing/initialize`, {
     method: "POST",
     headers: {
@@ -95,31 +97,34 @@ export async function initPaystack(token: string, plan_key = "authority_monthly"
     },
     body: JSON.stringify({
       plan_key,
-      callback_url: typeof window !== "undefined" ? `${window.location.origin}/authority?paid=1` : undefined,
+      provider,
+      callback_url:
+        typeof window !== "undefined"
+          ? `${window.location.origin}/authority?paid=1&provider=${provider}`
+          : undefined,
     }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || "Could not start payment");
-  return data as { authorization_url: string; reference: string };
+  return data as { authorization_url: string; reference: string; provider: string };
 }
 
-export async function verifyPaystack(token: string, reference: string) {
+export async function verifyPayment(
+  token: string,
+  reference: string,
+  provider: "paystack" | "flutterwave" = "paystack"
+) {
   const res = await fetch(`${API_BASE}/api/v1/billing/verify`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ reference }),
+    body: JSON.stringify({ reference, provider }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || "Verification failed");
   return data;
-}
-
-export function exportCsvUrl(token: string) {
-  // Browser cannot set Authorization on <a download>, so we fetch blob in UI instead
-  return `${API_BASE}/api/v1/export/reports.csv?token=${encodeURIComponent(token)}`;
 }
 
 export async function downloadReportsCsv(token: string) {
@@ -134,6 +139,66 @@ export async function downloadReportsCsv(token: string) {
   a.download = `civicfault_reports_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+export async function fetchMyOrg(token: string): Promise<Organization | null> {
+  const res = await fetch(`${API_BASE}/api/v1/orgs/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 200) {
+    const data = await res.json();
+    return data || null;
+  }
+  return null;
+}
+
+export async function createOrg(
+  token: string,
+  body: { name: string; slug: string; visibility?: string; sla_hours?: number; notify_phone?: string }
+) {
+  const res = await fetch(`${API_BASE}/api/v1/orgs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Could not create organization");
+  return data as Organization;
+}
+
+export async function updateMyOrg(token: string, body: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE}/api/v1/orgs/me`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Update failed");
+  return data as Organization;
+}
+
+export async function sendDigest(token: string) {
+  const res = await fetch(`${API_BASE}/api/v1/orgs/me/digest`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Digest failed");
+  return data;
+}
+
+export async function fetchOrgStats(token: string) {
+  const res = await fetch(`${API_BASE}/api/v1/orgs/me/stats`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  return res.json();
 }
 
 export { API_BASE };

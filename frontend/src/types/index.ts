@@ -15,12 +15,16 @@ export interface FaultReport {
   latitude: number;
   longitude: number;
   cluster_id: number | null;
+  organization_id?: number | null;
   severity: string | null;
   upvote_count: number;
   is_public: boolean;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  hours_open?: number | null;
+  is_overdue?: boolean | null;
+  sla_hours?: number | null;
 }
 
 export interface FaultReportList {
@@ -42,4 +46,19 @@ export interface ClusterSummary {
   last_seen: string;
   image_url: string | null;
   total_upvotes?: number;
+}
+
+export interface Organization {
+  id: number;
+  name: string;
+  slug: string;
+  visibility: string;
+  plan: string;
+  sla_hours: number;
+  notify_phone?: string | null;
+  notify_enabled?: boolean;
+  brand_name?: string | null;
+  primary_color?: string | null;
+  logo_url?: string | null;
+  custom_domain?: string | null;
 }
