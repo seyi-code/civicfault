@@ -9,11 +9,12 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text, inspect
 
 from app.core.config import settings
-from app.api import health, reports, clusters, auth, billing, export
+from app.api import health, reports, clusters, auth, billing, export, orgs
 from app.services.storage import ensure_upload_dir
 from app.db.session import engine
 from app.db.base import Base
 from app.models import fault, user  # noqa: F401
+from app.models import organization  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_lim
 app = FastAPI(
     title="CivicFault API",
     description="Community Infrastructure & Public Utility Fault Tracker",
-    version="1.3.0",
+    version="1.4.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -57,6 +58,19 @@ app.include_router(reports.router, prefix="/api/v1")
 app.include_router(clusters.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
+app.include_router(orgs.router, prefix="/api/v1")
+
+
+def _add_column_if_missing(table: str, column_sql: str) -> None:
+    insp = inspect(engine)
+    if table not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns(table)}
+    col_name = column_sql.split()[0]
+    if col_name in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column_sql}"))
 
 
 def _ensure_schema() -> None:
@@ -73,21 +87,11 @@ def _ensure_schema() -> None:
 
     Base.metadata.create_all(bind=engine)
 
-    # Additive columns for billing (create_all does not alter existing tables)
-    if "authority_users" in insp.get_table_names():
-        cols = {c["name"] for c in inspect(engine).get_columns("authority_users")}
-        alters = []
-        if "plan" not in cols:
-            alters.append("ADD COLUMN IF NOT EXISTS plan VARCHAR(30) DEFAULT 'free'")
-        if "plan_expires_at" not in cols:
-            alters.append("ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMP")
-        if "paystack_customer_code" not in cols:
-            alters.append("ADD COLUMN IF NOT EXISTS paystack_customer_code VARCHAR(100)")
-        if alters:
-            with engine.begin() as conn:
-                for a in alters:
-                    conn.execute(text(f"ALTER TABLE authority_users {a}"))
-            logger.info("authority_users plan columns ready")
+    _add_column_if_missing("authority_users", "plan VARCHAR(30) DEFAULT 'free'")
+    _add_column_if_missing("authority_users", "plan_expires_at TIMESTAMP")
+    _add_column_if_missing("authority_users", "paystack_customer_code VARCHAR(100)")
+    _add_column_if_missing("authority_users", "organization_id INTEGER")
+    _add_column_if_missing("fault_reports", "organization_id INTEGER")
 
     logger.info("Database tables ready")
 
@@ -97,14 +101,25 @@ def on_startup() -> None:
     try:
         _ensure_schema()
     except Exception as exc:
-        logger.exception("Schema setup failed: %s", exp if False else exc)
+        logger.exception("Schema setup failed: %s", exc)
 
 
 @app.get("/")
 def root():
     return {
         "name": "CivicFault",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "docs": "/docs",
         "health": "/api/v1/health",
+        "features": [
+            "reports",
+            "clusters",
+            "authority",
+            "paystack",
+            "flutterwave",
+            "orgs",
+            "sla",
+            "whatsapp_digest",
+            "white_label",
+        ],
     }

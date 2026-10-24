@@ -42,14 +42,22 @@ class Settings(BaseSettings):
 
     min_upvotes_for_public: int = 0
 
-    # Payments — Paystack (primary for UG/NG/GH)
     paystack_secret_key: Optional[str] = None
     paystack_public_key: Optional[str] = None
     paystack_callback_url: Optional[str] = None
 
-    # Flutterwave (optional alternate)
     flutterwave_secret_key: Optional[str] = None
     flutterwave_public_key: Optional[str] = None
+
+    # Notifications: africastalking | twilio
+    notify_provider: str = "africastalking"
+    africastalking_username: Optional[str] = None
+    africastalking_api_key: Optional[str] = None
+    africastalking_from: Optional[str] = None
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_sms_from: Optional[str] = None
+    twilio_whatsapp_from: Optional[str] = None
 
     @property
     def cors_origins_list(self) -> List[str]:
