@@ -34,7 +34,8 @@ export async function createReport(form: FormData): Promise<FaultReport> {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || data);
+    const detail =
+      typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || data);
     throw new Error(detail || `Upload failed (${res.status})`);
   }
   return data;
@@ -48,7 +49,7 @@ export async function loginAuthority(email: string, password: string) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || "Login failed");
-  return data as { access_token: string; token_type: string; role: string };
+  return data as { access_token: string; token_type: string; role: string; plan: string };
 }
 
 export async function registerAuthority(body: {
@@ -83,6 +84,56 @@ export async function updateReportStatus(
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || "Status update failed");
   return data;
+}
+
+export async function initPaystack(token: string, plan_key = "authority_monthly") {
+  const res = await fetch(`${API_BASE}/api/v1/billing/initialize`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      plan_key,
+      callback_url: typeof window !== "undefined" ? `${window.location.origin}/authority?paid=1` : undefined,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Could not start payment");
+  return data as { authorization_url: string; reference: string };
+}
+
+export async function verifyPaystack(token: string, reference: string) {
+  const res = await fetch(`${API_BASE}/api/v1/billing/verify`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ reference }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Verification failed");
+  return data;
+}
+
+export function exportCsvUrl(token: string) {
+  // Browser cannot set Authorization on <a download>, so we fetch blob in UI instead
+  return `${API_BASE}/api/v1/export/reports.csv?token=${encodeURIComponent(token)}`;
+}
+
+export async function downloadReportsCsv(token: string) {
+  const res = await fetch(`${API_BASE}/api/v1/export/reports.csv`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Export failed");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `civicfault_reports_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export { API_BASE };

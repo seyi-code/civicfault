@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { fetchReports, mediaUrl } from "@/lib/api";
+import { fetchReports } from "@/lib/api";
 import type { FaultReport } from "@/types";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ReportImage } from "@/components/ReportImage";
 import { Loader2 } from "lucide-react";
 
 const ReportsMap = dynamic(
@@ -64,14 +65,10 @@ export default function DashboardPage() {
             key={r.id}
             className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col sm:flex-row"
           >
-            {mediaUrl(r.image_url) && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={mediaUrl(r.image_url)!}
-                alt=""
-                className="sm:w-40 h-36 sm:h-auto object-cover bg-slate-100"
-              />
-            )}
+            <ReportImage
+              path={r.image_url}
+              className="sm:w-40 h-36 sm:h-auto object-cover w-full"
+            />
             <div className="p-4 flex-1">
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <span className="font-semibold capitalize">
