@@ -23,11 +23,11 @@ class FaultReport(Base):
     description = Column(Text, nullable=True)
     status = Column(String(30), nullable=False, default="pending", index=True)
 
-    # Plain floats — works on standard Railway Postgres (no PostGIS required)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
 
     cluster_id = Column(Integer, ForeignKey("fault_reports.id"), nullable=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -42,6 +42,7 @@ class FaultReport(Base):
     __table_args__ = (
         Index("idx_fault_reports_category_status", "category", "status"),
         Index("idx_fault_reports_lat_lng", "latitude", "longitude"),
+        Index("idx_fault_reports_org", "organization_id"),
     )
 
 

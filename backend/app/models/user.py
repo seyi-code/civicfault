@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 from app.db.base import Base
 
 
@@ -10,10 +10,11 @@ class AuthorityUser(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(200), nullable=True)
-    organization = Column(String(200), nullable=True)
-    role = Column(String(30), default="authority")  # authority | admin
+    organization = Column(String(200), nullable=True)  # legacy display name
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    # authority | admin | manager
+    role = Column(String(30), default="authority")
     is_active = Column(Boolean, default=True)
-    # free | authority | enterprise
     plan = Column(String(30), default="free", nullable=False)
     plan_expires_at = Column(DateTime, nullable=True)
     paystack_customer_code = Column(String(100), nullable=True)
