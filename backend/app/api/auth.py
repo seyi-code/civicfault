@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Form
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from typing import Optional
 
 from app.db.session import get_db
 from app.models.user import AuthorityUser
@@ -19,9 +20,27 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
-    organization: Optional[str] = None  # display label
+    organization: Optional[str] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = Field(None, min_length=8)
+
+
+def _issue_token(user: AuthorityUser) -> TokenResponse:
+    if not user.is_active:
+        raise HTTPException(403, "Account inactive")
+    token = create_access_token(subject=user.email, role=user.role)
+    return TokenResponse(
+        access_token=token,
+        role=user.role,
+        plan=getattr(user, "plan", None) or "free",
+    )
+
+
+def _authenticate(db: Session, email: str, password: str) -> AuthorityUser:
+    user = db.query(AuthorityUser).filter(AuthorityUser.email == email.lower().strip()).first()
+    if not user or not verify_password(password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return user
 
 
 @router.post("/register", response_model=AuthorityOut, status_code=201)
@@ -53,18 +72,21 @@ def register(body: AuthorityRegister, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: AuthorityLogin, db: Session = Depends(get_db)):
-    user = db.query(AuthorityUser).filter(AuthorityUser.email == body.email.lower()).first()
-    if not user or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not user.is_active:
-        raise HTTPException(403, "Account inactive")
-    token = create_access_token(subject=user.email, role=user.role)
-    return TokenResponse(
-        access_token=token,
-        role=user.role,
-        plan=getattr(user, "plan", None) or "free",
-    )
+def login_json(body: AuthorityLogin, db: Session = Depends(get_db)):
+    """JSON login for the web app."""
+    user = _authenticate(db, body.email, body.password)
+    return _issue_token(user)
+
+
+@router.post("/token", response_model=TokenResponse)
+def login_oauth2_form(
+    username: str = Form(..., description="Your email address"),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """OAuth2 password form for Swagger Authorize. Use email as username."""
+    user = _authenticate(db, username, password)
+    return _issue_token(user)
 
 
 @router.get("/me", response_model=AuthorityOut)
@@ -83,7 +105,9 @@ def update_profile(
     if body.organization is not None:
         user.organization = body.organization
     if body.new_password:
-        if not body.current_password or not verify_password(body.current_password, user.hashed_password):
+        if not body.current_password or not verify_password(
+            body.current_password, user.hashed_password
+        ):
             raise HTTPException(400, "current_password is required and must match")
         user.hashed_password = hash_password(body.new_password)
     db.add(user)
