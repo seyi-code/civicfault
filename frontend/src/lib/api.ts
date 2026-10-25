@@ -139,7 +139,24 @@ export async function updateReportStatus(
   return data;
 }
 
-/** Soft-delete by default. hard=true requires platform admin. */
+export async function pinReport(
+  reportId: number,
+  isPinned: boolean,
+  token: string
+): Promise<FaultReport> {
+  const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/pin`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ is_pinned: isPinned }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(formatApiError(data, "Pin update failed"));
+  return data;
+}
+
 export async function deleteReport(reportId: number, token: string, hard = false) {
   const q = hard ? "?hard=true" : "";
   const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}${q}`, {
