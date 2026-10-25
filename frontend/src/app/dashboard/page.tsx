@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { fetchReports } from "@/lib/api";
+import { fetchReports, upvoteReport } from "@/lib/api";
 import type { FaultReport } from "@/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ReportImage } from "@/components/ReportImage";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, ThumbsUp } from "lucide-react";
 
 const ReportsMap = dynamic(
   () => import("@/components/ReportsMap").then((m) => m.ReportsMap),
@@ -23,11 +23,24 @@ function placeLine(r: FaultReport) {
   return `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`;
 }
 
+function getVoterHash(): string {
+  if (typeof window === "undefined") return "anon";
+  const key = "civicfault_voter";
+  let h = localStorage.getItem(key);
+  if (!h) {
+    h = `v_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+    localStorage.setItem(key, h);
+  }
+  return h;
+}
+
 export default function DashboardPage() {
   const [items, setItems] = useState<FaultReport[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [voted, setVoted] = useState<Record<number, boolean>>({});
+  const [votingId, setVotingId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchReports()
@@ -37,7 +50,35 @@ export default function DashboardPage() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    try {
+      const raw = localStorage.getItem("civicfault_voted_ids");
+      if (raw) setVoted(JSON.parse(raw));
+    } catch {
+      /* ignore */
+    }
   }, []);
+
+  async function onUpvote(id: number) {
+    if (voted[id] || votingId) return;
+    setVotingId(id);
+    setError(null);
+    try {
+      const updated = await upvoteReport(id, getVoterHash());
+      setItems((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      const next = { ...voted, [id]: true };
+      setVoted(next);
+      localStorage.setItem("civicfault_voted_ids", JSON.stringify(next));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Upvote failed";
+      if (msg.toLowerCase().includes("already")) {
+        const next = { ...voted, [id]: true };
+        setVoted(next);
+        localStorage.setItem("civicfault_voted_ids", JSON.stringify(next));
+      } else setError(msg);
+    } finally {
+      setVotingId(null);
+    }
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -83,9 +124,6 @@ export default function DashboardPage() {
                 {r.confidence != null && (
                   <span className="text-xs text-slate-400">AI {Math.round(r.confidence * 100)}%</span>
                 )}
-                {r.hours_open != null && (
-                  <span className="text-xs text-slate-400">{r.hours_open}h open</span>
-                )}
               </div>
               {r.description && <p className="text-sm text-slate-600 mb-2">{r.description}</p>}
               <p className="text-xs text-slate-500">{placeLine(r)}</p>
@@ -94,6 +132,20 @@ export default function DashboardPage() {
                 {r.address_label ? ` · ${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}` : ""} ·{" "}
                 {new Date(r.created_at).toLocaleString()}
               </p>
+              <button
+                type="button"
+                disabled={!!voted[r.id] || votingId === r.id}
+                onClick={() => onUpvote(r.id)}
+                className={`mt-3 inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 border ${
+                  voted[r.id]
+                    ? "bg-amber-50 border-amber-200 text-amber-800"
+                    : "bg-white border-slate-200 text-slate-700 hover:border-amber-300"
+                } disabled:opacity-70`}
+              >
+                <ThumbsUp className="w-4 h-4" />
+                {voted[r.id] ? "Confirmed" : "I see this too"}
+                <span className="text-xs text-slate-400">{r.upvote_count || 0}</span>
+              </button>
             </div>
           </li>
         ))}
