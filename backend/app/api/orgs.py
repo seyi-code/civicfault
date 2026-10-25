@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Optional
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_authority, hash_password
+from app.core.security import get_current_authority, hash_password, verify_password
 from app.db.session import get_db
 from app.models.organization import Organization
 from app.models.user import AuthorityUser
@@ -78,6 +78,12 @@ class InviteAccept(BaseModel):
     token: str
     password: str = Field(..., min_length=8)
     full_name: Optional[str] = None
+
+
+class PlanOverride(BaseModel):
+    plan: str = Field(..., pattern=r"^(free|authority|enterprise)$")
+    days: int = Field(30, ge=1, le=3650)
+    user_email: Optional[EmailStr] = None  # if set, upgrade that user; else self/org
 
 
 @router.post("", response_model=OrgOut, status_code=201)
@@ -185,30 +191,74 @@ def update_my_org(
     return org
 
 
+def _reports_for_user(db: Session, user: AuthorityUser):
+    """Same scope as workspace list: org reports if any, else all public."""
+    if user.organization_id:
+        return db.query(FaultReport).filter(FaultReport.organization_id == user.organization_id).all()
+    return db.query(FaultReport).filter(FaultReport.is_public == True).all()  # noqa: E712
+
+
 @router.get("/me/stats")
 def org_stats(
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
-    if not user.organization_id:
-        return {"total": 0, "open": 0, "overdue": 0, "resolved": 0, "sla_hours": 72, "avg_open_hours": 0}
-    org = db.query(Organization).filter(Organization.id == user.organization_id).first()
-    reports = db.query(FaultReport).filter(FaultReport.organization_id == user.organization_id).all()
+    org = None
+    if user.organization_id:
+        org = db.query(Organization).filter(Organization.id == user.organization_id).first()
+    reports = _reports_for_user(db, user)
+    sla = org.sla_hours if org else 72
     open_r = [r for r in reports if r.status in ("pending", "confirmed", "in_progress")]
-    overdue = [
-        r for r in open_r if is_overdue(r.created_at, r.status, org.sla_hours if org else 72, r.resolved_at)
-    ]
+    overdue = [r for r in open_r if is_overdue(r.created_at, r.status, sla, r.resolved_at)]
     return {
         "total": len(reports),
         "open": len(open_r),
         "overdue": len(overdue),
         "resolved": sum(1 for r in reports if r.status == "resolved"),
-        "sla_hours": org.sla_hours if org else 72,
+        "sla_hours": sla,
+        "scope": "organization" if user.organization_id else "public",
         "avg_open_hours": round(
             sum(hours_open(r.created_at, r.resolved_at) for r in open_r) / len(open_r), 1
         )
         if open_r
         else 0,
+    }
+
+
+@router.post("/admin/set-plan")
+def admin_set_plan(
+    body: PlanOverride,
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
+    """Platform admin (role=admin without needing payment) can grant plans.
+
+    First registered user is admin. Use this for pilots, comps, and support.
+    """
+    if user.role != "admin":
+        raise HTTPException(403, "Platform admin only")
+
+    target = user
+    if body.user_email:
+        target = db.query(AuthorityUser).filter(AuthorityUser.email == body.user_email.lower()).first()
+        if not target:
+            raise HTTPException(404, "User not found")
+
+    target.plan = body.plan
+    target.plan_expires_at = datetime.utcnow() + timedelta(days=body.days)
+    db.add(target)
+    if target.organization_id:
+        org = db.query(Organization).filter(Organization.id == target.organization_id).first()
+        if org:
+            org.plan = body.plan
+            org.plan_expires_at = target.plan_expires_at
+            db.add(org)
+    db.commit()
+    return {
+        "ok": True,
+        "email": target.email,
+        "plan": target.plan,
+        "plan_expires_at": target.plan_expires_at,
     }
 
 
@@ -219,19 +269,9 @@ def list_members(
 ):
     if not user.organization_id:
         return []
-    rows = (
-        db.query(AuthorityUser)
-        .filter(AuthorityUser.organization_id == user.organization_id)
-        .all()
-    )
+    rows = db.query(AuthorityUser).filter(AuthorityUser.organization_id == user.organization_id).all()
     return [
-        {
-            "id": u.id,
-            "email": u.email,
-            "full_name": u.full_name,
-            "role": u.role,
-            "is_active": u.is_active,
-        }
+        {"id": u.id, "email": u.email, "full_name": u.full_name, "role": u.role, "is_active": u.is_active}
         for u in rows
     ]
 
@@ -348,5 +388,5 @@ async def send_digest_now(
     try:
         result = await send_whatsapp_or_sms(org.notify_phone, msg)
     except Exception as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise HTTPException(502, str(exc)) from exp if False else exc
     return {"sent": True, "to": org.notify_phone, "preview": msg, "result": result}
