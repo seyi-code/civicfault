@@ -4,6 +4,7 @@ import { X, MapPin, Clock, ThumbsUp, Pin, Trash2 } from "lucide-react";
 import type { FaultReport, FaultStatus } from "@/types";
 import { ReportImage } from "@/components/ReportImage";
 import { ReportBadges } from "@/components/ReportBadges";
+import { formatDateTime } from "@/lib/format";
 
 const STATUSES: FaultStatus[] = [
   "pending",
@@ -20,7 +21,6 @@ export function ReportDetailModal({
   onUpvote,
   voted,
   voting,
-  // Staff / platform admin
   isPlatformAdmin,
   onPin,
   onStatus,
@@ -41,7 +41,10 @@ export function ReportDetailModal({
   busy?: boolean;
 }) {
   const pinned = !!report.is_pinned;
-  const staffMode = !!(onStatus || onPin || onSoftDelete);
+  // Do NOT include onPin in this flag — TS would narrow onPin to never when false
+  const showWorkflow = typeof onStatus === "function";
+  const showSoftDelete = typeof onSoftDelete === "function";
+  const showPin = typeof onPin === "function";
 
   return (
     <div
@@ -109,18 +112,16 @@ export function ReportDetailModal({
             </div>
             <div>
               <dt className="text-slate-400">Filed</dt>
-              <dd className="font-medium text-slate-700">{new Date(report.created_at).toLocaleString()}</dd>
+              <dd className="font-medium text-slate-700">{formatDateTime(report.created_at)}</dd>
             </div>
             <div>
               <dt className="text-slate-400">Updated</dt>
-              <dd className="font-medium text-slate-700">{new Date(report.updated_at).toLocaleString()}</dd>
+              <dd className="font-medium text-slate-700">{formatDateTime(report.updated_at)}</dd>
             </div>
-            {report.resolved_at && (
-              <div className="col-span-2">
-                <dt className="text-slate-400">Resolved</dt>
-                <dd className="font-medium text-slate-700">{new Date(report.resolved_at).toLocaleString()}</dd>
-              </div>
-            )}
+            <div className="col-span-2">
+              <dt className="text-slate-400">Resolved</dt>
+              <dd className="font-medium text-slate-700">{formatDateTime(report.resolved_at)}</dd>
+            </div>
             <div>
               <dt className="text-slate-400">Upvotes</dt>
               <dd className="font-medium text-slate-700">{report.upvote_count || 0}</dd>
@@ -150,78 +151,7 @@ export function ReportDetailModal({
             </button>
           )}
 
-          {/* Staff / platform admin actions */}
-          {staffMode && (
-            <div className="space-y-3 border-t border-slate-100 pt-3">
-              {onStatus && (
-                <div>
-                  <label className="text-xs font-medium text-slate-500 block mb-1">Update status</label>
-                  <select
-                    className="w-full text-sm border rounded-lg px-3 py-2"
-                    value={report.status}
-                    disabled={busy}
-                    onChange={(e) => onStatus(report.id, e.target.value)}
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s.replace(/_/g, " ")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {onPin && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onPin(report.id, !pinned)}
-                  className={`w-full inline-flex items-center justify-center gap-2 text-sm rounded-xl py-2.5 font-medium border ${
-                    pinned
-                      ? "bg-amber-50 border-amber-300 text-amber-900"
-                      : "bg-white border-slate-200 text-slate-800"
-                  }`}
-                >
-                  <Pin className="w-4 h-4" />
-                  {pinned ? "Unpin (remove priority)" : "Pin for priority visibility"}
-                </button>
-              )}
-
-              {onSoftDelete && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    if (confirm("Hide this report from public view? (soft-delete → rejected)")) {
-                      onSoftDelete(report.id);
-                    }
-                  }}
-                  className="w-full inline-flex items-center justify-center gap-2 text-sm border border-red-200 text-red-700 bg-red-50 rounded-xl py-2.5 font-medium"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Soft-delete (reject & hide)
-                </button>
-              )}
-
-              {isPlatformAdmin && onHardDelete && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    if (confirm("PERMANENTLY delete this report? This cannot be undone.")) {
-                      onHardDelete(report.id);
-                    }
-                  }}
-                  className="w-full text-xs text-red-500 underline text-center"
-                >
-                  Platform admin: hard delete
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Public dashboard: platform admin can pin without full staff mode */}
-          {!staffMode && onPin && isPlatformAdmin && (
+          {showPin && onPin && (
             <button
               type="button"
               disabled={busy}
@@ -233,7 +163,56 @@ export function ReportDetailModal({
               }`}
             >
               <Pin className="w-4 h-4" />
-              {pinned ? "Unpin report" : "Pin report (platform admin)"}
+              {pinned ? "Unpin report" : isPlatformAdmin ? "Pin report (platform admin)" : "Pin for priority"}
+            </button>
+          )}
+
+          {showWorkflow && onStatus && (
+            <div>
+              <label className="text-xs font-medium text-slate-500 block mb-1">Update status</label>
+              <select
+                className="w-full text-sm border rounded-lg px-3 py-2"
+                value={report.status}
+                disabled={busy}
+                onChange={(e) => onStatus(report.id, e.target.value)}
+              >
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {showSoftDelete && onSoftDelete && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (confirm("Hide this report from public view? (soft-delete → rejected)")) {
+                  onSoftDelete(report.id);
+                }
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 text-sm border border-red-200 text-red-700 bg-red-50 rounded-xl py-2.5 font-medium"
+            >
+              <Trash2 className="w-4 h-4" />
+              Soft-delete (reject & hide)
+            </button>
+          )}
+
+          {isPlatformAdmin && onHardDelete && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (confirm("PERMANENTLY delete this report? This cannot be undone.")) {
+                  onHardDelete(report.id);
+                }
+              }}
+              className="w-full text-xs text-red-500 underline text-center"
+            >
+              Platform admin: hard delete
             </button>
           )}
         </div>

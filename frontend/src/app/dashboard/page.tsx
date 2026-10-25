@@ -7,9 +7,11 @@ import type { FaultReport } from "@/types";
 import { ReportImage } from "@/components/ReportImage";
 import { ReportDetailModal } from "@/components/ReportDetailModal";
 import { ReportBadges } from "@/components/ReportBadges";
+import { formatDateTime } from "@/lib/format";
 import { Loader2, ThumbsUp, Pin } from "lucide-react";
 
 const TOKEN_KEY = "civicfault_authority_token";
+const ROLE_KEY = "civicfault_authority_role";
 
 const ReportsMap = dynamic(
   () => import("@/components/ReportsMap").then((m) => m.ReportsMap),
@@ -64,11 +66,19 @@ export default function DashboardPage() {
       /* ignore */
     }
     const t = localStorage.getItem(TOKEN_KEY);
+    const roleHint = localStorage.getItem(ROLE_KEY);
+    if (roleHint === "admin") setIsPlatformAdmin(true);
     if (t) {
       setToken(t);
       fetchMe(t)
-        .then((me) => setIsPlatformAdmin(me.role === "admin"))
-        .catch(() => setIsPlatformAdmin(false));
+        .then((me) => {
+          const admin = me.role === "admin";
+          setIsPlatformAdmin(admin);
+          if (me.role) localStorage.setItem(ROLE_KEY, me.role);
+        })
+        .catch(() => {
+          /* keep roleHint */
+        });
     }
   }, []);
 
@@ -96,19 +106,21 @@ export default function DashboardPage() {
   }
 
   async function onPin(id: number, pinned: boolean) {
-    if (!token || !isPlatformAdmin) return;
+    if (!token) {
+      setError("Sign in as platform admin on Authority first, then return here to pin.");
+      return;
+    }
     setPinBusy(true);
     setError(null);
     try {
       const updated = await pinReport(id, pinned, token);
       setItems((prev) => {
         const next = prev.map((r) => (r.id === id ? updated : r));
-        // Pinned first
         return [...next].sort((a, b) => Number(!!b.is_pinned) - Number(!!a.is_pinned));
       });
       setSelected((cur) => (cur && cur.id === id ? updated : cur));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Pin failed");
+      setError(e instanceof Error ? e.message : "Pin failed — need platform admin role");
     } finally {
       setPinBusy(false);
     }
@@ -169,8 +181,7 @@ export default function DashboardPage() {
                 <p className="text-xs text-slate-500 mt-2">{placeLine(r)}</p>
                 <p className="text-xs text-slate-400 mt-0.5">
                   #{r.id}
-                  {r.hours_open != null ? ` · ${r.hours_open}h open` : ""} ·{" "}
-                  {new Date(r.created_at).toLocaleString()}
+                  {r.hours_open != null ? ` · ${r.hours_open}h open` : ""} · {formatDateTime(r.created_at)}
                 </p>
                 <span
                   role="presentation"
@@ -206,7 +217,7 @@ export default function DashboardPage() {
           voted={!!voted[selected.id]}
           voting={votingId === selected.id}
           isPlatformAdmin={isPlatformAdmin}
-          onPin={isPlatformAdmin ? onPin : undefined}
+          onPin={isPlatformAdmin && token ? onPin : undefined}
           busy={pinBusy}
         />
       )}
