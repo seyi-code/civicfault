@@ -14,8 +14,9 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     debug: bool = True
+    # Set SECRET_KEY once on Railway and never change it (changing invalidates all logins)
     secret_key: str = "change-me-in-production-use-openssl-rand-hex-32"
-    access_token_expire_minutes: int = 60 * 24
+    access_token_expire_minutes: int = 60 * 24 * 7
 
     database_url: str = "postgresql+psycopg2://civic:civic@localhost:5432/civicfault"
 
@@ -49,7 +50,6 @@ class Settings(BaseSettings):
     flutterwave_secret_key: Optional[str] = None
     flutterwave_public_key: Optional[str] = None
 
-    # Notifications: africastalking | twilio
     notify_provider: str = "africastalking"
     africastalking_username: Optional[str] = None
     africastalking_api_key: Optional[str] = None
@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     twilio_auth_token: Optional[str] = None
     twilio_sms_from: Optional[str] = None
     twilio_whatsapp_from: Optional[str] = None
+
+    # Header X-Cron-Secret for POST /api/v1/cron/digests
+    cron_secret: Optional[str] = None
 
     @property
     def cors_origins_list(self) -> List[str]:
