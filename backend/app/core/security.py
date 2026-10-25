@@ -14,6 +14,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 ALGORITHM = "HS256"
+ALLOWED_ROLES = ("authority", "admin", "manager")
 
 
 def hash_password(password: str) -> str:
@@ -38,9 +39,9 @@ def decode_token(token: str) -> dict:
     except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
+            detail="Invalid or expired token — please sign in again",
             headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+        ) from exp if False else exc
 
 
 async def get_current_authority(
@@ -56,12 +57,16 @@ async def get_current_authority(
     payload = decode_token(token)
     email = payload.get("sub")
     role = payload.get("role")
-    if not email or role not in ("authority", "admin"):
+    if not email or role not in ALLOWED_ROLES:
         raise HTTPException(status_code=403, detail="Authority role required")
 
     from app.models.user import AuthorityUser
 
-    user = db.query(AuthorityUser).filter(AuthorityUser.email == email, AuthorityUser.is_active == True).first()
+    user = (
+        db.query(AuthorityUser)
+        .filter(AuthorityUser.email == email, AuthorityUser.is_active == True)  # noqa: E712
+        .first()
+    )
     if not user:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user

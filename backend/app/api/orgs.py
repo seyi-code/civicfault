@@ -1,15 +1,17 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_authority
+from app.core.security import get_current_authority, hash_password
 from app.db.session import get_db
 from app.models.organization import Organization
 from app.models.user import AuthorityUser
 from app.models.fault import FaultReport
+from app.models.invite import OrgInvite
 from app.services.notify import send_whatsapp_or_sms
 from app.services.sla import is_overdue, hours_open
 
@@ -58,6 +60,26 @@ class OrgOut(BaseModel):
         from_attributes = True
 
 
+class InviteCreate(BaseModel):
+    email: EmailStr
+    role: str = Field("authority", pattern=r"^(authority|manager|admin)$")
+
+
+class InviteOut(BaseModel):
+    id: int
+    email: str
+    role: str
+    token: str
+    expires_at: datetime
+    accept_url: str
+
+
+class InviteAccept(BaseModel):
+    token: str
+    password: str = Field(..., min_length=8)
+    full_name: Optional[str] = None
+
+
 @router.post("", response_model=OrgOut, status_code=201)
 def create_org(
     body: OrgCreate,
@@ -87,7 +109,7 @@ def create_org(
     user.organization_id = org.id
     user.organization = org.name
     if user.role != "admin":
-        user.role = "admin"  # creator becomes org admin
+        user.role = "admin"
     db.add(user)
     db.commit()
     db.refresh(org)
@@ -101,8 +123,7 @@ def my_org(
 ):
     if not user.organization_id:
         return None
-    org = db.query(Organization).filter(Organization.id == user.organization_id).first()
-    return org
+    return db.query(Organization).filter(Organization.id == user.organization_id).first()
 
 
 @router.get("/by-slug/{slug}", response_model=OrgOut)
@@ -115,7 +136,6 @@ def get_by_slug(slug: str, db: Session = Depends(get_db)):
 
 @router.get("/by-host")
 def get_by_host(host: str, db: Session = Depends(get_db)):
-    """White-label: resolve branding from Host header / domain."""
     host = host.lower().split(":")[0]
     org = (
         db.query(Organization)
@@ -157,7 +177,6 @@ def update_my_org(
     org = db.query(Organization).filter(Organization.id == user.organization_id).first()
     if not org:
         raise HTTPException(404, "Organization not found")
-
     for field, val in body.model_dump(exclude_unset=True).items():
         setattr(org, field, val)
     db.add(org)
@@ -172,15 +191,12 @@ def org_stats(
     user: AuthorityUser = Depends(get_current_authority),
 ):
     if not user.organization_id:
-        raise HTTPException(400, "No organization")
+        return {"total": 0, "open": 0, "overdue": 0, "resolved": 0, "sla_hours": 72, "avg_open_hours": 0}
     org = db.query(Organization).filter(Organization.id == user.organization_id).first()
-    q = db.query(FaultReport).filter(FaultReport.organization_id == user.organization_id)
-    reports = q.all()
+    reports = db.query(FaultReport).filter(FaultReport.organization_id == user.organization_id).all()
     open_r = [r for r in reports if r.status in ("pending", "confirmed", "in_progress")]
     overdue = [
-        r
-        for r in open_r
-        if is_overdue(r.created_at, r.status, org.sla_hours if org else 72, r.resolved_at)
+        r for r in open_r if is_overdue(r.created_at, r.status, org.sla_hours if org else 72, r.resolved_at)
     ]
     return {
         "total": len(reports),
@@ -196,6 +212,105 @@ def org_stats(
     }
 
 
+@router.get("/me/members")
+def list_members(
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
+    if not user.organization_id:
+        return []
+    rows = (
+        db.query(AuthorityUser)
+        .filter(AuthorityUser.organization_id == user.organization_id)
+        .all()
+    )
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "full_name": u.full_name,
+            "role": u.role,
+            "is_active": u.is_active,
+        }
+        for u in rows
+    ]
+
+
+@router.post("/me/invites", response_model=InviteOut, status_code=201)
+def create_invite(
+    body: InviteCreate,
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
+    if not user.organization_id:
+        raise HTTPException(400, "Create a workspace first")
+    if user.role not in ("admin", "manager"):
+        raise HTTPException(403, "Only admin/manager can invite")
+
+    email = body.email.lower()
+    existing = db.query(AuthorityUser).filter(AuthorityUser.email == email).first()
+    if existing and existing.organization_id == user.organization_id:
+        raise HTTPException(400, "User already in this organization")
+
+    token = secrets.token_urlsafe(24)
+    invite = OrgInvite(
+        organization_id=user.organization_id,
+        email=email,
+        role=body.role,
+        token=token,
+        invited_by_id=user.id,
+        expires_at=datetime.utcnow() + timedelta(days=7),
+    )
+    db.add(invite)
+    db.commit()
+    db.refresh(invite)
+
+    accept_url = f"https://civicfault.vercel.app/authority/accept?token={token}"
+    return InviteOut(
+        id=invite.id,
+        email=invite.email,
+        role=invite.role,
+        token=invite.token,
+        expires_at=invite.expires_at,
+        accept_url=accept_url,
+    )
+
+
+@router.post("/invites/accept")
+def accept_invite(body: InviteAccept, db: Session = Depends(get_db)):
+    invite = db.query(OrgInvite).filter(OrgInvite.token == body.token).first()
+    if not invite or invite.accepted:
+        raise HTTPException(400, "Invalid or already used invite")
+    if invite.expires_at < datetime.utcnow():
+        raise HTTPException(400, "Invite expired")
+
+    user = db.query(AuthorityUser).filter(AuthorityUser.email == invite.email).first()
+    if user:
+        user.organization_id = invite.organization_id
+        user.role = invite.role
+        user.hashed_password = hash_password(body.password)
+        if body.full_name:
+            user.full_name = body.full_name
+        user.is_active = True
+    else:
+        org = db.query(Organization).filter(Organization.id == invite.organization_id).first()
+        user = AuthorityUser(
+            email=invite.email,
+            hashed_password=hash_password(body.password),
+            full_name=body.full_name,
+            organization=org.name if org else None,
+            organization_id=invite.organization_id,
+            role=invite.role,
+            plan="free",
+        )
+        db.add(user)
+
+    invite.accepted = True
+    db.add(invite)
+    db.commit()
+    return {"ok": True, "email": invite.email, "organization_id": invite.organization_id, "role": invite.role}
+
+
 @router.post("/me/digest")
 async def send_digest_now(
     db: Session = Depends(get_db),
@@ -207,11 +322,9 @@ async def send_digest_now(
     if not org or not org.notify_phone:
         raise HTTPException(400, "Set notify_phone on organization first")
 
-    since = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    q = db.query(FaultReport).filter(FaultReport.organization_id == org.id)
-    # If private org has no scoped reports yet, fall back to recent public for demo
     recent = (
-        q.filter(FaultReport.created_at >= since)
+        db.query(FaultReport)
+        .filter(FaultReport.organization_id == org.id)
         .order_by(FaultReport.created_at.desc())
         .limit(20)
         .all()
@@ -225,15 +338,11 @@ async def send_digest_now(
             .all()
         )
 
-    lines = [
-        f"{org.brand_name or org.name} daily digest",
-        f"{len(recent)} report(s):",
-    ]
+    lines = [f"{org.brand_name or org.name} digest", f"{len(recent)} report(s):"]
     for r in recent[:10]:
-        overdue = is_overdue(r.created_at, r.status, org.sla_hours, r.resolved_at)
-        flag = " OVERDUE" if overdue else ""
+        flag = " OVERDUE" if is_overdue(r.created_at, r.status, org.sla_hours, r.resolved_at) else ""
         lines.append(f"- #{r.id} {r.category} [{r.status}]{flag}")
-    lines.append("https://civicfault.vercel.app/dashboard")
+    lines.append(f"https://civicfault.vercel.app/dashboard?org={org.slug}")
     msg = "\n".join(lines)
 
     try:
