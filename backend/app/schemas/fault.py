@@ -13,6 +13,7 @@ class FaultReportResponse(BaseModel):
     status: str
     latitude: float
     longitude: float
+    address_label: Optional[str] = None
     cluster_id: Optional[int] = None
     organization_id: Optional[int] = None
     severity: Optional[str] = None
@@ -21,7 +22,6 @@ class FaultReportResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: Optional[datetime] = None
-    # SLA computed fields
     hours_open: Optional[float] = None
     is_overdue: Optional[bool] = None
     sla_hours: Optional[int] = None

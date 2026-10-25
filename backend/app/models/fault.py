@@ -25,6 +25,8 @@ class FaultReport(Base):
 
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
+    # Human-readable place from reverse geocode (e.g. "Makerere Hill Road, Kampala")
+    address_label = Column(String(300), nullable=True)
 
     cluster_id = Column(Integer, ForeignKey("fault_reports.id"), nullable=True, index=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
