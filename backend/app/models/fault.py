@@ -29,6 +29,8 @@ class FaultReport(Base):
 
     cluster_id = Column(Integer, ForeignKey("fault_reports.id"), nullable=True, index=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    # Resident account that filed the report (optional — guests allowed)
+    reporter_id = Column(Integer, ForeignKey("resident_users.id"), nullable=True, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -39,7 +41,6 @@ class FaultReport(Base):
 
     upvote_count = Column(Integer, default=0, nullable=False)
     is_public = Column(Boolean, default=True, nullable=False)
-    # Staff pin for priority visibility (not the same as community upvote)
     is_pinned = Column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
@@ -47,6 +48,7 @@ class FaultReport(Base):
         Index("idx_fault_reports_lat_lng", "latitude", "longitude"),
         Index("idx_fault_reports_org", "organization_id"),
         Index("idx_fault_reports_pinned", "is_pinned"),
+        Index("idx_fault_reports_reporter", "reporter_id"),
     )
 
 
