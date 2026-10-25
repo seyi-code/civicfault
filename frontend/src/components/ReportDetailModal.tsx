@@ -4,6 +4,7 @@ import { X, MapPin, Clock, ThumbsUp, Pin, Trash2 } from "lucide-react";
 import type { FaultReport, FaultStatus } from "@/types";
 import { ReportImage } from "@/components/ReportImage";
 import { ReportBadges } from "@/components/ReportBadges";
+import { ReportChat } from "@/components/ReportChat";
 import { formatDateTime } from "@/lib/format";
 
 const STATUSES: FaultStatus[] = [
@@ -41,7 +42,6 @@ export function ReportDetailModal({
   busy?: boolean;
 }) {
   const pinned = !!report.is_pinned;
-  // Do NOT include onPin in this flag — TS would narrow onPin to never when false
   const showWorkflow = typeof onStatus === "function";
   const showSoftDelete = typeof onSoftDelete === "function";
   const showPin = typeof onPin === "function";
@@ -215,6 +215,8 @@ export function ReportDetailModal({
               Platform admin: hard delete
             </button>
           )}
+
+          <ReportChat reportId={report.id} />
         </div>
       </div>
     </div>
