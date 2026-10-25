@@ -8,7 +8,6 @@ import { fetchMyOrg } from "@/lib/api";
 const TOKEN_KEY = "civicfault_authority_token";
 
 function accentFromSlug(slug: string): string {
-  // Stable HSL accent from slug for workspace identity
   let h = 0;
   for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) % 360;
   return `hsl(${h} 70% 42%)`;
@@ -47,11 +46,24 @@ export function SiteHeader() {
   }, []);
 
   return (
-    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 sticky top-0 z-40">
+    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sticky top-0 z-40">
       <div className="max-w-6xl mx-auto flex justify-between items-center gap-3">
         <Link href="/" className="flex items-center gap-2 min-w-0">
           <AlertTriangle className="w-6 h-6 shrink-0" style={{ color: accent }} />
-          <span className="font-bold text-lg tracking-tight">CivicFault</span>
+          <div className="min-w-0">
+            <div className="font-bold text-lg tracking-tight leading-tight">CivicFault</div>
+            {/* Mobile only: workspace under brand */}
+            {orgName && (
+              <div
+                className="sm:hidden text-[11px] font-medium truncate max-w-[9rem] leading-tight"
+                style={{ color: accent }}
+                title={orgSlug ? `Workspace · ${orgSlug}` : orgName}
+              >
+                {orgName}
+              </div>
+            )}
+          </div>
+          {/* Desktop: chip beside brand (unchanged) */}
           {orgName && (
             <span
               className="hidden sm:inline-flex items-center max-w-[10rem] truncate text-xs font-semibold px-2 py-0.5 rounded-full text-white"

@@ -100,13 +100,13 @@ async def create_report(
             cluster_id = None
 
         org_id = organization_id
+        # Transparency-first: org_slug tags ownership/SLA but does NOT hide from public dashboard.
+        # Workspace = who owns the SLA; Community vs Workspace is a badge, not a privacy wall.
         is_public = settings.min_upvotes_for_public <= 0
         if org_slug and not org_id:
             org = db.query(Organization).filter(Organization.slug == org_slug).first()
             if org:
                 org_id = org.id
-                if org.visibility == "private":
-                    is_public = False
 
         address_label = await reverse_geocode(latitude, longitude)
 
@@ -144,7 +144,7 @@ async def create_report(
         raise HTTPException(
             status_code=500,
             detail=f"{type(exc).__name__}: {str(exc)[:500]}",
-        ) from exp if False else exp if False else exc
+        ) from exc
 
 
 @router.get("", response_model=FaultReportListResponse)
@@ -294,14 +294,12 @@ def pin_report(
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
-    """Staff pin/unpin for priority visibility (not community upvote)."""
     report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
     if not report:
         raise HTTPException(404, "Report not found")
     if not _can_manage(user, report) and report.organization_id is not None:
         raise HTTPException(403, "Report belongs to another organization")
     if not _can_manage(user, report) and user.role != "admin":
-        # Org-less public: platform admin only
         if report.organization_id is None and user.role != "admin":
             raise HTTPException(403, "Only platform admin can pin community reports")
     report.is_pinned = body.is_pinned
@@ -356,7 +354,6 @@ def upvote_report(
     body: UpvoteRequest,
     db: Session = Depends(get_db),
 ):
-    """Community confirmation — any visitor, one vote per browser hash."""
     report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
     if not report:
         raise HTTPException(404, "Report not found")
