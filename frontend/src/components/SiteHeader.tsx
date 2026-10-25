@@ -46,18 +46,21 @@ export function SiteHeader() {
   }, []);
 
   return (
-    <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
-        {/* Logo = home / report form */}
-        <Link href="/" className="flex items-center gap-1.5 min-w-0 shrink">
-          <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" style={{ color: accent }} />
+    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 sm:py-4 sticky top-0 z-40 shadow-sm">
+      <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+        <Link href="/" className="flex items-center gap-2.5 min-w-0 shrink">
+          <AlertTriangle
+            className="w-8 h-8 sm:w-9 sm:h-9 shrink-0"
+            style={{ color: accent }}
+            strokeWidth={2.25}
+          />
           <div className="min-w-0">
-            <div className="font-bold text-base sm:text-lg tracking-tight leading-tight truncate">
+            <div className="font-bold text-xl sm:text-2xl tracking-tight leading-none truncate">
               CivicFault
             </div>
             {orgName && (
               <div
-                className="text-[10px] sm:text-[11px] font-medium truncate max-w-[7rem] sm:max-w-[12rem] leading-tight"
+                className="text-xs font-medium truncate max-w-[8rem] sm:max-w-[14rem] mt-0.5 leading-tight"
                 style={{ color: accent }}
                 title={orgSlug ? `Workspace · ${orgSlug}` : orgName}
               >
@@ -67,8 +70,7 @@ export function SiteHeader() {
           </div>
         </Link>
 
-        {/* Report removed — logo already goes to / */}
-        <nav className="flex items-center gap-2.5 sm:gap-5 text-xs sm:text-sm font-medium text-slate-600 shrink-0">
+        <nav className="flex items-center gap-3 sm:gap-6 text-sm sm:text-base font-medium text-slate-600 shrink-0">
           <Link href="/dashboard" className="hover:text-slate-900 transition whitespace-nowrap">
             Dashboard
           </Link>
