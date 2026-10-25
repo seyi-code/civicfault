@@ -17,6 +17,7 @@ from app.schemas.fault import (
     FaultReportListResponse,
     StatusUpdate,
     PinUpdate,
+    ReportEdit,
     UpvoteRequest,
 )
 from app.services.ml import pipeline
@@ -76,6 +77,16 @@ def _can_manage(user: AuthorityUser, report: FaultReport) -> bool:
     return False
 
 
+def _require_manage(user: AuthorityUser, report: FaultReport) -> None:
+    if _can_manage(user, report):
+        return
+    if report.organization_id is None and user.role == "admin":
+        return
+    if report.organization_id is None:
+        raise HTTPException(403, "Only platform admin can edit community reports")
+    raise HTTPException(403, "Report belongs to another organization")
+
+
 @router.post("", response_model=FaultReportResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("20/minute")
 async def create_report(
@@ -100,8 +111,6 @@ async def create_report(
             cluster_id = None
 
         org_id = organization_id
-        # Transparency-first: org_slug tags ownership/SLA but does NOT hide from public dashboard.
-        # Workspace = who owns the SLA; Community vs Workspace is a badge, not a privacy wall.
         is_public = settings.min_upvotes_for_public <= 0
         if org_slug and not org_id:
             org = db.query(Organization).filter(Organization.slug == org_slug).first()
@@ -260,6 +269,42 @@ def get_report(report_id: int, db: Session = Depends(get_db)):
     report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
     if not report:
         raise HTTPException(404, "Report not found")
+    return _row_to_response(report, db)
+
+
+@router.patch("/{report_id}", response_model=FaultReportResponse)
+def edit_report(
+    report_id: int,
+    body: ReportEdit,
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
+    """Edit description, category, place label, severity, status."""
+    report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "Report not found")
+    _require_manage(user, report)
+
+    data = body.model_dump(exclude_unset=True)
+    if "description" in data:
+        report.description = data["description"]
+    if "category" in data and data["category"]:
+        report.category = data["category"]
+    if "address_label" in data:
+        report.address_label = data["address_label"]
+    if "severity" in data:
+        report.severity = data["severity"]
+    if "status" in data and data["status"]:
+        report.status = data["status"]
+        if data["status"] == "resolved":
+            report.resolved_at = datetime.utcnow()
+        elif data["status"] != "resolved":
+            report.resolved_at = None
+
+    report.updated_at = datetime.utcnow()
+    db.add(report)
+    db.commit()
+    db.refresh(report)
     return _row_to_response(report, db)
 
 

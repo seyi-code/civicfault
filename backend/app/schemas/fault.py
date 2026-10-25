@@ -45,6 +45,23 @@ class PinUpdate(BaseModel):
     is_pinned: bool
 
 
+class ReportEdit(BaseModel):
+    """Staff / platform admin field edits."""
+    description: Optional[str] = Field(None, max_length=2000)
+    category: Optional[str] = Field(
+        None,
+        pattern=(
+            "^(pothole|water_leak|blocked_drain|downed_power_line|"
+            "uncollected_waste|broken_streetlight|other)$"
+        ),
+    )
+    address_label: Optional[str] = Field(None, max_length=300)
+    severity: Optional[str] = Field(None, pattern="^(low|medium|high|critical)$")
+    status: Optional[str] = Field(
+        None, pattern="^(pending|confirmed|in_progress|resolved|rejected)$"
+    )
+
+
 class UpvoteRequest(BaseModel):
     voter_hash: str = Field(..., min_length=8, max_length=64)
 
