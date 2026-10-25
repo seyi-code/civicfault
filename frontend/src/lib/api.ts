@@ -57,6 +57,39 @@ export async function createReport(form: FormData): Promise<FaultReport> {
   return data;
 }
 
+export async function fetchComments(reportId: number) {
+  const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/comments`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Could not load discussion");
+  return res.json() as Promise<{
+    items: { id: number; report_id: number; author_label: string; is_staff: boolean; body: string; created_at: string }[];
+    total: number;
+  }>;
+}
+
+export async function postComment(
+  reportId: number,
+  body: { body: string; author_label?: string; author_hash?: string },
+  token?: string
+) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/comments`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(formatApiError(data, "Comment failed"));
+  return data as {
+    id: number;
+    report_id: number;
+    author_label: string;
+    is_staff: boolean;
+    body: string;
+    created_at: string;
+  };
+}
+
 export async function loginAuthority(email: string, password: string) {
   const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
     method: "POST",
@@ -300,6 +333,20 @@ export async function upvoteReport(reportId: number, voterHash: string): Promise
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(formatApiError(data, "Upvote failed"));
   return data;
+}
+
+export async function createInvite(token: string, email: string, role = "authority") {
+  const res = await fetch(`${API_BASE}/api/v1/orgs/me/invites`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ email, role }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(formatApiError(data, "Invite failed"));
+  return data as { accept_url: string; email: string; token: string };
 }
 
 export { API_BASE };
