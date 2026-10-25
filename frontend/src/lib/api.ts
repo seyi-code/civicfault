@@ -4,7 +4,6 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
   "https://civicfault-api.up.railway.app";
 
-/** FastAPI may return detail as string, list of objects, or object. */
 export function formatApiError(data: unknown, fallback = "Request failed"): string {
   if (!data || typeof data !== "object") return fallback;
   const d = data as { detail?: unknown; message?: unknown };
@@ -140,6 +139,19 @@ export async function updateReportStatus(
   return data;
 }
 
+/** Soft-delete by default. hard=true requires platform admin. */
+export async function deleteReport(reportId: number, token: string, hard = false) {
+  const q = hard ? "?hard=true" : "";
+  const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}${q}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(formatApiError(data, "Delete failed"));
+  }
+}
+
 export async function initPayment(
   token: string,
   plan_key = "authority_monthly",
@@ -262,7 +274,6 @@ export async function fetchOrgStats(token: string) {
   return res.json();
 }
 
-/** Community upvote (no login). voter_hash should be stable per browser. */
 export async function upvoteReport(reportId: number, voterHash: string): Promise<FaultReport> {
   const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/upvote`, {
     method: "POST",
