@@ -1,10 +1,6 @@
 "use client";
 
-/**
- * Authority console uses the same rich detail sheet as the public dashboard.
- * Staff actions (status / pin / delete) are passed through.
- */
-import { ReportDetailModal } from "@/components/ReportDetailModal";
+import { ReportDetailModal, type ReportEditPayload } from "@/components/ReportDetailModal";
 import type { FaultReport } from "@/types";
 
 export function AuthorityReportModal({
@@ -15,6 +11,7 @@ export function AuthorityReportModal({
   onPin,
   onSoftDelete,
   onHardDelete,
+  onEdit,
   busy,
 }: {
   report: FaultReport;
@@ -24,6 +21,7 @@ export function AuthorityReportModal({
   onPin?: (id: number, pinned: boolean) => void;
   onSoftDelete: (id: number) => void;
   onHardDelete?: (id: number) => void;
+  onEdit?: (id: number, body: ReportEditPayload) => Promise<void> | void;
   busy?: boolean;
 }) {
   return (
@@ -35,6 +33,7 @@ export function AuthorityReportModal({
       onPin={onPin}
       onSoftDelete={onSoftDelete}
       onHardDelete={onHardDelete}
+      onEdit={onEdit}
       busy={busy}
     />
   );
