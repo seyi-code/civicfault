@@ -20,6 +20,7 @@ export interface FaultReport {
   severity: string | null;
   upvote_count: number;
   is_public: boolean;
+  is_pinned?: boolean;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent, useEffect, Suspense } from "react";
+import { useState, FormEvent, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { Camera, MapPin, Loader2, CheckCircle2 } from "lucide-react";
 import { createReport, mediaUrl, API_BASE } from "@/lib/api";
@@ -9,6 +9,7 @@ import type { FaultReport } from "@/types";
 function ReportForm() {
   const search = useSearchParams();
   const orgSlug = search.get("org") || "";
+  const resultRef = useRef<HTMLDivElement>(null);
 
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
@@ -28,6 +29,15 @@ function ReportForm() {
       .then((o) => o && setOrgLabel(o.brand_name || o.name))
       .catch(() => {});
   }, [orgSlug]);
+
+  useEffect(() => {
+    if (!result) return;
+    // Scroll to success card after paint
+    const t = setTimeout(() => {
+      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [result]);
 
   function useMyLocation() {
     if (!navigator.geolocation) {
@@ -51,7 +61,6 @@ function ReportForm() {
             ? "Location permission denied. Allow location for this site in browser settings, or type lat/lng."
             : "Could not get GPS. Check mobile data/Wi‑Fi or enter coordinates manually.";
         setError(hint);
-        // Sensible Kampala default so form still works offline
         if (!lat) setLat("0.3476");
         if (!lng) setLng("32.5825");
       },
@@ -119,27 +128,11 @@ function ReportForm() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Latitude</label>
-            <input
-              type="number"
-              step="any"
-              required
-              value={lat}
-              onChange={(e) => setLat(e.target.value)}
-              placeholder="0.3476"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-            />
+            <input type="number" step="any" required value={lat} onChange={(e) => setLat(e.target.value)} placeholder="0.3476" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Longitude</label>
-            <input
-              type="number"
-              step="any"
-              required
-              value={lng}
-              onChange={(e) => setLng(e.target.value)}
-              placeholder="32.5825"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-            />
+            <input type="number" step="any" required value={lng} onChange={(e) => setLng(e.target.value)} placeholder="32.5825" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
           </div>
         </div>
 
@@ -147,19 +140,10 @@ function ReportForm() {
           <MapPin className="w-4 h-4" />
           {locating ? "Getting location…" : locOk ? "Location updated — tap again to refresh" : "Use my current location"}
         </button>
-        <p className="text-xs text-slate-400 -mt-2">
-          On phone: allow Location when prompted. HTTPS sites only. Default Kampala coords work for testing.
-        </p>
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Description (optional)</label>
-          <textarea
-            rows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Large pothole near the junction"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-          />
+          <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Large pothole near the junction" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
         </div>
 
         {error && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>}
@@ -170,24 +154,44 @@ function ReportForm() {
       </form>
 
       {result && (
-        <div className="mt-6 bg-emerald-50 border border-emerald-200 rounded-2xl p-5">
-          <div className="flex items-center gap-2 text-emerald-800 font-semibold mb-3">
-            <CheckCircle2 className="w-5 h-5" /> Report submitted
+        <div
+          ref={resultRef}
+          id="report-success"
+          className="mt-6 bg-emerald-50 border border-emerald-200 rounded-2xl p-5 scroll-mt-20"
+        >
+          <div className="flex items-center gap-2 text-emerald-800 font-semibold mb-1">
+            <CheckCircle2 className="w-5 h-5" /> Report submitted successfully
           </div>
+          <p className="text-sm text-emerald-700 mb-3">
+            Your report is live. Staff can update status from the Authority console.
+          </p>
           <dl className="text-sm space-y-1 text-slate-700">
-            <div><span className="text-slate-500">ID:</span> {result.id}</div>
+            <div><span className="text-slate-500">ID:</span> #{result.id}</div>
             <div>
               <span className="text-slate-500">Category:</span>{" "}
-              <span className="font-medium">{result.category.replace(/_/g, " ")}</span>
+              <span className="font-medium capitalize">{result.category.replace(/_/g, " ")}</span>
+            </div>
+            <div>
+              <span className="text-slate-500">Status:</span> {result.status}
             </div>
             {result.address_label && (
               <div><span className="text-slate-500">Place:</span> {result.address_label}</div>
             )}
+            <div>
+              <span className="text-slate-500">Coords:</span>{" "}
+              {result.latitude.toFixed(5)}, {result.longitude.toFixed(5)}
+            </div>
           </dl>
           {mediaUrl(result.image_url) && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={mediaUrl(result.image_url)!} alt="Report" className="mt-3 rounded-lg max-h-48 object-cover w-full" />
+            <img src={mediaUrl(result.image_url)!} alt="Uploaded report" className="mt-3 rounded-lg max-h-56 object-cover w-full border border-emerald-100" />
           )}
+          <a
+            href="/dashboard"
+            className="mt-4 inline-flex text-sm font-medium text-emerald-800 underline"
+          >
+            View on public dashboard →
+          </a>
         </div>
       )}
     </div>
