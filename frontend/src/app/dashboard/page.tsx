@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { fetchReports, upvoteReport } from "@/lib/api";
 import type { FaultReport } from "@/types";
-import { StatusBadge } from "@/components/StatusBadge";
 import { ReportImage } from "@/components/ReportImage";
 import { ReportDetailModal } from "@/components/ReportDetailModal";
-import { Loader2, AlertTriangle, ThumbsUp } from "lucide-react";
+import { ReportBadges } from "@/components/ReportBadges";
+import { Loader2, ThumbsUp } from "lucide-react";
 
 const ReportsMap = dynamic(
   () => import("@/components/ReportsMap").then((m) => m.ReportsMap),
@@ -117,23 +117,19 @@ export default function DashboardPage() {
               className="w-full text-left bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col sm:flex-row hover:border-amber-300 hover:shadow-md transition focus:outline-none focus:ring-2 focus:ring-amber-400"
             >
               <ReportImage path={r.image_url} className="sm:w-40 h-36 sm:h-auto object-cover w-full" />
-              <div className="p-4 flex-1">
-                <div className="flex flex-wrap items-center gap-2 mb-2">
-                  <span className="font-semibold capitalize">{r.category.replace(/_/g, " ")}</span>
-                  <StatusBadge status={r.status} />
-                  {r.is_overdue && (
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
-                      <AlertTriangle className="w-3 h-3" /> Overdue
-                    </span>
-                  )}
-                  {r.confidence != null && (
-                    <span className="text-xs text-slate-400">AI {Math.round(r.confidence * 100)}%</span>
-                  )}
+              <div className="p-4 flex-1 min-w-0">
+                <div className="font-semibold capitalize text-slate-900 mb-1.5">
+                  {r.category.replace(/_/g, " ")}
                 </div>
-                {r.description && <p className="text-sm text-slate-600 mb-2 line-clamp-2">{r.description}</p>}
-                <p className="text-xs text-slate-500">{placeLine(r)}</p>
+                <ReportBadges report={r} />
+                {r.description && (
+                  <p className="text-sm text-slate-600 mt-2 mb-2 line-clamp-2">{r.description}</p>
+                )}
+                <p className="text-xs text-slate-500 mt-2">{placeLine(r)}</p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  #{r.id} · {new Date(r.created_at).toLocaleString()}
+                  #{r.id}
+                  {r.hours_open != null ? ` · ${r.hours_open}h open` : ""} ·{" "}
+                  {new Date(r.created_at).toLocaleString()}
                 </p>
                 <span
                   role="presentation"
