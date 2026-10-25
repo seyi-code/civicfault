@@ -4,6 +4,29 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
   "https://civicfault-api.up.railway.app";
 
+/** FastAPI may return detail as string, list of objects, or object. */
+export function formatApiError(data: unknown, fallback = "Request failed"): string {
+  if (!data || typeof data !== "object") return fallback;
+  const d = data as { detail?: unknown; message?: unknown };
+  const detail = d.detail ?? d.message;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          const o = item as { msg?: string; loc?: unknown[]; type?: string };
+          const where = Array.isArray(o.loc) ? o.loc.filter((x) => x !== "body").join(".") : "";
+          return where ? `${where}: ${o.msg || o.type || "invalid"}` : o.msg || JSON.stringify(item);
+        }
+        return String(item);
+      })
+      .join("; ");
+  }
+  if (detail && typeof detail === "object") return JSON.stringify(detail);
+  return fallback;
+}
+
 export function mediaUrl(path: string | null | undefined): string | null {
   if (!path) return null;
   if (path.startsWith("http")) return path;
@@ -31,11 +54,7 @@ export async function fetchWorkspaceReports(token: string): Promise<FaultReportL
 export async function createReport(form: FormData): Promise<FaultReport> {
   const res = await fetch(`${API_BASE}/api/v1/reports`, { method: "POST", body: form });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const detail =
-      typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || data);
-    throw new Error(detail || `Upload failed (${res.status})`);
-  }
+  if (!res.ok) throw new Error(formatApiError(data, `Upload failed (${res.status})`));
   return data;
 }
 
@@ -46,7 +65,7 @@ export async function loginAuthority(email: string, password: string) {
     body: JSON.stringify({ email, password }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Login failed");
+  if (!res.ok) throw new Error(formatApiError(data, "Login failed"));
   return data as { access_token: string; token_type: string; role: string; plan: string };
 }
 
@@ -62,7 +81,7 @@ export async function registerAuthority(body: {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Registration failed");
+  if (!res.ok) throw new Error(formatApiError(data, "Registration failed"));
   return data;
 }
 
@@ -99,7 +118,7 @@ export async function updateProfile(
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Profile update failed");
+  if (!res.ok) throw new Error(formatApiError(data, "Profile update failed"));
   return data;
 }
 
@@ -117,7 +136,7 @@ export async function updateReportStatus(
     body: JSON.stringify({ status }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Status update failed");
+  if (!res.ok) throw new Error(formatApiError(data, "Status update failed"));
   return data;
 }
 
@@ -142,7 +161,7 @@ export async function initPayment(
     }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Could not start payment");
+  if (!res.ok) throw new Error(formatApiError(data, "Could not start payment"));
   return data as { authorization_url: string; reference: string; provider: string };
 }
 
@@ -160,7 +179,7 @@ export async function verifyPayment(
     body: JSON.stringify({ reference, provider }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Verification failed");
+  if (!res.ok) throw new Error(formatApiError(data, "Verification failed"));
   return data;
 }
 
@@ -193,16 +212,21 @@ export async function createOrg(
   token: string,
   body: { name: string; slug: string; visibility?: string; sla_hours?: number; notify_phone?: string }
 ) {
+  const slug = body.slug
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
   const res = await fetch(`${API_BASE}/api/v1/orgs`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, slug }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Could not create organization");
+  if (!res.ok) throw new Error(formatApiError(data, "Could not create organization"));
   return data as Organization;
 }
 
@@ -216,7 +240,7 @@ export async function updateMyOrg(token: string, body: Record<string, unknown>) 
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Update failed");
+  if (!res.ok) throw new Error(formatApiError(data, "Update failed"));
   return data as Organization;
 }
 
@@ -226,7 +250,7 @@ export async function sendDigest(token: string) {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || "Digest failed");
+  if (!res.ok) throw new Error(formatApiError(data, "Digest failed"));
   return data;
 }
 
@@ -236,6 +260,18 @@ export async function fetchOrgStats(token: string) {
   });
   if (!res.ok) return null;
   return res.json();
+}
+
+/** Community upvote (no login). voter_hash should be stable per browser. */
+export async function upvoteReport(reportId: number, voterHash: string): Promise<FaultReport> {
+  const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/upvote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ voter_hash: voterHash }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(formatApiError(data, "Upvote failed"));
+  return data;
 }
 
 export { API_BASE };
