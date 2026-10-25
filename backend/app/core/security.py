@@ -72,3 +72,27 @@ async def get_current_authority(
     if not user:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
+
+
+async def get_current_authority_optional(
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    """Returns AuthorityUser when Bearer token present; else None (public)."""
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
+    email = payload.get("sub")
+    role = payload.get("role")
+    if not email or role not in ALLOWED_ROLES:
+        return None
+    from app.models.user import AuthorityUser
+
+    return (
+        db.query(AuthorityUser)
+        .filter(AuthorityUser.email == email, AuthorityUser.is_active == True)  # noqa: E712
+        .first()
+    )
