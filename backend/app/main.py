@@ -9,12 +9,11 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text, inspect
 
 from app.core.config import settings
-from app.api import health, reports, clusters, auth, billing, export, orgs
+from app.api import health, reports, clusters, auth, billing, export, orgs, cron
 from app.services.storage import ensure_upload_dir
 from app.db.session import engine
 from app.db.base import Base
-from app.models import fault, user  # noqa: F401
-from app.models import organization  # noqa: F401
+from app.models import fault, user, organization, invite  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_lim
 app = FastAPI(
     title="CivicFault API",
     description="Community Infrastructure & Public Utility Fault Tracker",
-    version="1.4.0",
+    version="1.5.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -59,6 +58,7 @@ app.include_router(clusters.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(orgs.router, prefix="/api/v1")
+app.include_router(cron.router, prefix="/api/v1")
 
 
 def _add_column_if_missing(table: str, column_sql: str) -> None:
@@ -80,7 +80,6 @@ def _ensure_schema() -> None:
     if "fault_reports" in tables:
         cols = {c["name"] for c in insp.get_columns("fault_reports")}
         if "location" in cols and "latitude" not in cols:
-            logger.warning("Migrating fault_reports away from PostGIS geometry column")
             with engine.begin() as conn:
                 conn.execute(text("DROP TABLE IF EXISTS report_upvotes CASCADE"))
                 conn.execute(text("DROP TABLE IF EXISTS fault_reports CASCADE"))
@@ -101,14 +100,14 @@ def on_startup() -> None:
     try:
         _ensure_schema()
     except Exception as exc:
-        logger.exception("Schema setup failed: %s", exc)
+        logger.exception("Schema setup failed: %s", exp if False else exp if False else exc)
 
 
 @app.get("/")
 def root():
     return {
         "name": "CivicFault",
-        "version": "1.4.0",
+        "version": "1.5.0",
         "docs": "/docs",
         "health": "/api/v1/health",
         "features": [
@@ -121,5 +120,7 @@ def root():
             "sla",
             "whatsapp_digest",
             "white_label",
+            "team_invites",
+            "cron_digests",
         ],
     }
