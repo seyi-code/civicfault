@@ -1,4 +1,4 @@
-import type { FaultReport, FaultReportList, ClusterSummary, Organization } from "@/types";
+import type { FaultReport, FaultReportList, Organization } from "@/types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -63,6 +63,43 @@ export async function registerAuthority(body: {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || "Registration failed");
+  return data;
+}
+
+export async function fetchMe(token: string) {
+  const res = await fetch(`${API_BASE}/api/v1/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Could not load profile");
+  return res.json() as Promise<{
+    id: number;
+    email: string;
+    full_name?: string;
+    organization?: string;
+    role: string;
+    plan: string;
+  }>;
+}
+
+export async function updateProfile(
+  token: string,
+  body: {
+    full_name?: string;
+    organization?: string;
+    current_password?: string;
+    new_password?: string;
+  }
+) {
+  const res = await fetch(`${API_BASE}/api/v1/auth/me`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Profile update failed");
   return data;
 }
 
