@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Camera, MapPin, Loader2, CheckCircle2 } from "lucide-react";
-import { createReport, mediaUrl } from "@/lib/api";
+import { createReport, mediaUrl, API_BASE } from "@/lib/api";
 import type { FaultReport } from "@/types";
 
-export default function ReportPage() {
+function ReportForm() {
+  const search = useSearchParams();
+  const orgSlug = search.get("org") || "";
+
   const [lat, setLat] = useState("0.3476");
   const [lng, setLng] = useState("32.5825");
   const [description, setDescription] = useState("");
@@ -14,6 +18,15 @@ export default function ReportPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FaultReport | null>(null);
   const [locating, setLocating] = useState(false);
+  const [orgLabel, setOrgLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!orgSlug) return;
+    fetch(`${API_BASE}/api/v1/orgs/by-slug/${orgSlug}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((o) => o && setOrgLabel(o.brand_name || o.name))
+      .catch(() => {});
+  }, [orgSlug]);
 
   function useMyLocation() {
     if (!navigator.geolocation) {
@@ -48,6 +61,7 @@ export default function ReportPage() {
     form.append("longitude", lng);
     form.append("file", file);
     if (description.trim()) form.append("description", description.trim());
+    if (orgSlug) form.append("org_slug", orgSlug);
 
     setLoading(true);
     try {
@@ -66,8 +80,9 @@ export default function ReportPage() {
     <div className="max-w-lg mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-slate-900 mb-1">Report a fault</h1>
       <p className="text-slate-500 text-sm mb-6">
-        Snap a photo of a pothole, leak, waste pile, or other infrastructure issue.
-        We classify it and pin it on the public map.
+        {orgLabel
+          ? `Reporting to ${orgLabel}`
+          : "Snap a photo of a pothole, leak, waste pile, or other infrastructure issue."}
       </p>
 
       <form onSubmit={onSubmit} className="space-y-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
@@ -91,67 +106,28 @@ export default function ReportPage() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Latitude</label>
-            <input
-              type="number"
-              step="any"
-              required
-              value={lat}
-              onChange={(e) => setLat(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-            />
+            <input type="number" step="any" required value={lat} onChange={(e) => setLat(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Longitude</label>
-            <input
-              type="number"
-              step="any"
-              required
-              value={lng}
-              onChange={(e) => setLng(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-            />
+            <input type="number" step="any" required value={lng} onChange={(e) => setLng(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={useMyLocation}
-          disabled={locating}
-          className="inline-flex items-center gap-2 text-sm text-amber-700 font-medium hover:text-amber-800"
-        >
+        <button type="button" onClick={useMyLocation} disabled={locating} className="inline-flex items-center gap-2 text-sm text-amber-700 font-medium">
           <MapPin className="w-4 h-4" />
           {locating ? "Getting location…" : "Use my current location"}
         </button>
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Description (optional)</label>
-          <textarea
-            rows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Large pothole near the junction"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-          />
+          <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Large pothole near the junction" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
         </div>
 
-        {error && (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-            {error}
-          </div>
-        )}
+        {error && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-semibold rounded-xl py-3 transition"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" /> Submitting…
-            </>
-          ) : (
-            "Submit report"
-          )}
+        <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-semibold rounded-xl py-3 transition">
+          {loading ? (<><Loader2 className="w-5 h-5 animate-spin" /> Submitting…</>) : "Submit report"}
         </button>
       </form>
 
@@ -161,30 +137,26 @@ export default function ReportPage() {
             <CheckCircle2 className="w-5 h-5" /> Report submitted
           </div>
           <dl className="text-sm space-y-1 text-slate-700">
-            <div>
-              <span className="text-slate-500">ID:</span> {result.id}
-            </div>
+            <div><span className="text-slate-500">ID:</span> {result.id}</div>
             <div>
               <span className="text-slate-500">Category:</span>{" "}
               <span className="font-medium">{result.category.replace(/_/g, " ")}</span>
-              {result.confidence != null && (
-                <span className="text-slate-400"> ({Math.round(result.confidence * 100)}%)</span>
-              )}
-            </div>
-            <div>
-              <span className="text-slate-500">Status:</span> {result.status}
             </div>
           </dl>
           {mediaUrl(result.image_url) && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={mediaUrl(result.image_url)!}
-              alt="Report"
-              className="mt-3 rounded-lg max-h-48 object-cover w-full"
-            />
+            <img src={mediaUrl(result.image_url)!} alt="Report" className="mt-3 rounded-lg max-h-48 object-cover w-full" />
           )}
         </div>
       )}
     </div>
+  );
+}
+
+export default function ReportPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-400">Loading…</div>}>
+      <ReportForm />
+    </Suspense>
   );
 }
