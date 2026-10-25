@@ -46,15 +46,18 @@ export function SiteHeader() {
   }, []);
 
   return (
-    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto flex justify-between items-center gap-3">
-        <Link href="/" className="flex items-center gap-2 min-w-0">
-          <AlertTriangle className="w-6 h-6 shrink-0" style={{ color: accent }} />
+    <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sticky top-0 z-40">
+      <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
+        {/* Logo = home / report form */}
+        <Link href="/" className="flex items-center gap-1.5 min-w-0 shrink">
+          <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 shrink-0" style={{ color: accent }} />
           <div className="min-w-0">
-            <div className="font-bold text-lg tracking-tight leading-tight">CivicFault</div>
+            <div className="font-bold text-base sm:text-lg tracking-tight leading-tight truncate">
+              CivicFault
+            </div>
             {orgName && (
               <div
-                className="sm:hidden text-[11px] font-medium truncate max-w-[9rem] leading-tight"
+                className="text-[10px] sm:text-[11px] font-medium truncate max-w-[7rem] sm:max-w-[12rem] leading-tight"
                 style={{ color: accent }}
                 title={orgSlug ? `Workspace · ${orgSlug}` : orgName}
               >
@@ -62,27 +65,18 @@ export function SiteHeader() {
               </div>
             )}
           </div>
-          {orgName && (
-            <span
-              className="hidden sm:inline-flex items-center max-w-[10rem] truncate text-xs font-semibold px-2 py-0.5 rounded-full text-white"
-              style={{ backgroundColor: accent }}
-              title={orgSlug ? `Workspace · ${orgSlug}` : orgName}
-            >
-              {orgName}
-            </span>
-          )}
         </Link>
-        <nav className="flex gap-3 sm:gap-5 text-sm font-medium text-slate-600 shrink-0">
-          <Link href="/" className="hover:text-slate-900 transition">
-            Report
-          </Link>
-          <Link href="/dashboard" className="hover:text-slate-900 transition">
+
+        {/* Report removed — logo already goes to / */}
+        <nav className="flex items-center gap-2.5 sm:gap-5 text-xs sm:text-sm font-medium text-slate-600 shrink-0">
+          <Link href="/dashboard" className="hover:text-slate-900 transition whitespace-nowrap">
             Dashboard
           </Link>
-          <Link href="/resident" className="hover:text-slate-900 transition">
-            My reports
+          <Link href="/resident" className="hover:text-slate-900 transition whitespace-nowrap">
+            <span className="sm:hidden">Mine</span>
+            <span className="hidden sm:inline">My reports</span>
           </Link>
-          <Link href="/authority" className="hover:text-slate-900 transition">
+          <Link href="/authority" className="hover:text-slate-900 transition whitespace-nowrap">
             Authority
           </Link>
         </nav>
