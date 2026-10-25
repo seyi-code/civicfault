@@ -14,6 +14,7 @@ export interface FaultReport {
   status: FaultStatus;
   latitude: number;
   longitude: number;
+  address_label?: string | null;
   cluster_id: number | null;
   organization_id?: number | null;
   severity: string | null;
@@ -33,19 +34,6 @@ export interface FaultReportList {
   page: number;
   page_size: number;
   pages: number;
-}
-
-export interface ClusterSummary {
-  cluster_id: number;
-  category: string;
-  report_count: number;
-  dominant_status: FaultStatus;
-  latitude: number;
-  longitude: number;
-  first_seen: string;
-  last_seen: string;
-  image_url: string | null;
-  total_upvotes?: number;
 }
 
 export interface Organization {

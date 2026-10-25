@@ -10,14 +10,15 @@ function ReportForm() {
   const search = useSearchParams();
   const orgSlug = search.get("org") || "";
 
-  const [lat, setLat] = useState("0.3476");
-  const [lng, setLng] = useState("32.5825");
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FaultReport | null>(null);
   const [locating, setLocating] = useState(false);
+  const [locOk, setLocOk] = useState(false);
   const [orgLabel, setOrgLabel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,21 +31,31 @@ function ReportForm() {
 
   function useMyLocation() {
     if (!navigator.geolocation) {
-      setError("Geolocation not supported on this device");
+      setError("Geolocation not supported — enter coordinates manually (Kampala ≈ 0.35, 32.58)");
       return;
     }
     setLocating(true);
+    setError(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLat(pos.coords.latitude.toFixed(6));
         setLng(pos.coords.longitude.toFixed(6));
+        setLocOk(true);
         setLocating(false);
       },
-      () => {
-        setError("Could not get location — enter coordinates manually");
+      (err) => {
         setLocating(false);
+        setLocOk(false);
+        const hint =
+          err.code === 1
+            ? "Location permission denied. Allow location for this site in browser settings, or type lat/lng."
+            : "Could not get GPS. Check mobile data/Wi‑Fi or enter coordinates manually.";
+        setError(hint);
+        // Sensible Kampala default so form still works offline
+        if (!lat) setLat("0.3476");
+        if (!lng) setLng("32.5825");
       },
-      { enableHighAccuracy: true, timeout: 15000 }
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }
     );
   }
 
@@ -54,6 +65,10 @@ function ReportForm() {
     setResult(null);
     if (!file) {
       setError("Please choose a photo");
+      return;
+    }
+    if (!lat || !lng) {
+      setError("Set location (Use my location or type coordinates)");
       return;
     }
     const form = new FormData();
@@ -90,9 +105,7 @@ function ReportForm() {
           <label className="block text-sm font-medium text-slate-700 mb-1.5">Photo</label>
           <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-6 cursor-pointer hover:border-amber-400 hover:bg-amber-50/40 transition">
             <Camera className="w-8 h-8 text-slate-400" />
-            <span className="text-sm text-slate-500">
-              {file ? file.name : "Tap to take or choose a photo"}
-            </span>
+            <span className="text-sm text-slate-500">{file ? file.name : "Tap to take or choose a photo"}</span>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
@@ -106,22 +119,47 @@ function ReportForm() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Latitude</label>
-            <input type="number" step="any" required value={lat} onChange={(e) => setLat(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            <input
+              type="number"
+              step="any"
+              required
+              value={lat}
+              onChange={(e) => setLat(e.target.value)}
+              placeholder="0.3476"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Longitude</label>
-            <input type="number" step="any" required value={lng} onChange={(e) => setLng(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            <input
+              type="number"
+              step="any"
+              required
+              value={lng}
+              onChange={(e) => setLng(e.target.value)}
+              placeholder="32.5825"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
           </div>
         </div>
 
         <button type="button" onClick={useMyLocation} disabled={locating} className="inline-flex items-center gap-2 text-sm text-amber-700 font-medium">
           <MapPin className="w-4 h-4" />
-          {locating ? "Getting location…" : "Use my current location"}
+          {locating ? "Getting location…" : locOk ? "Location updated — tap again to refresh" : "Use my current location"}
         </button>
+        <p className="text-xs text-slate-400 -mt-2">
+          On phone: allow Location when prompted. HTTPS sites only. Default Kampala coords work for testing.
+        </p>
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Description (optional)</label>
-          <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Large pothole near the junction" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+          <textarea
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. Large pothole near the junction"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+          />
         </div>
 
         {error && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>}
@@ -142,6 +180,9 @@ function ReportForm() {
               <span className="text-slate-500">Category:</span>{" "}
               <span className="font-medium">{result.category.replace(/_/g, " ")}</span>
             </div>
+            {result.address_label && (
+              <div><span className="text-slate-500">Place:</span> {result.address_label}</div>
+            )}
           </dl>
           {mediaUrl(result.image_url) && (
             // eslint-disable-next-line @next/next/no-img-element

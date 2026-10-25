@@ -18,6 +18,11 @@ const ReportsMap = dynamic(
   }
 );
 
+function placeLine(r: FaultReport) {
+  if (r.address_label) return r.address_label;
+  return `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`;
+}
+
 export default function DashboardPage() {
   const [items, setItems] = useState<FaultReport[]>([]);
   const [total, setTotal] = useState(0);
@@ -83,8 +88,10 @@ export default function DashboardPage() {
                 )}
               </div>
               {r.description && <p className="text-sm text-slate-600 mb-2">{r.description}</p>}
-              <p className="text-xs text-slate-400">
-                #{r.id} · {r.latitude.toFixed(4)}, {r.longitude.toFixed(4)} ·{" "}
+              <p className="text-xs text-slate-500">{placeLine(r)}</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                #{r.id}
+                {r.address_label ? ` · ${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}` : ""} ·{" "}
                 {new Date(r.created_at).toLocaleString()}
               </p>
             </div>
