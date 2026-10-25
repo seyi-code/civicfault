@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.db.session import get_db
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
 ALGORITHM = "HS256"
 ALLOWED_ROLES = ("authority", "admin", "manager")
@@ -25,7 +25,9 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(subject: str, role: str = "authority", expires_minutes: Optional[int] = None) -> str:
+def create_access_token(
+    subject: str, role: str = "authority", expires_minutes: Optional[int] = None
+) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=expires_minutes or settings.access_token_expire_minutes
     )
@@ -41,7 +43,7 @@ def decode_token(token: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token — please sign in again",
             headers={"WWW-Authenticate": "Bearer"},
-        ) from exp if False else exc
+        ) from exc
 
 
 async def get_current_authority(
