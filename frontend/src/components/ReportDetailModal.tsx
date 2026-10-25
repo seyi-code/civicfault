@@ -1,23 +1,48 @@
 "use client";
 
-import { X, MapPin, Clock, ThumbsUp } from "lucide-react";
-import type { FaultReport } from "@/types";
-import { StatusBadge } from "@/components/StatusBadge";
+import { X, MapPin, Clock, ThumbsUp, Pin, Trash2 } from "lucide-react";
+import type { FaultReport, FaultStatus } from "@/types";
 import { ReportImage } from "@/components/ReportImage";
+import { ReportBadges } from "@/components/ReportBadges";
 
+const STATUSES: FaultStatus[] = [
+  "pending",
+  "confirmed",
+  "in_progress",
+  "resolved",
+  "rejected",
+];
+
+/** Shared detail sheet for public dashboard + authority console. */
 export function ReportDetailModal({
   report,
   onClose,
   onUpvote,
   voted,
   voting,
+  // Staff / platform admin
+  isPlatformAdmin,
+  onPin,
+  onStatus,
+  onSoftDelete,
+  onHardDelete,
+  busy,
 }: {
   report: FaultReport;
   onClose: () => void;
   onUpvote?: (id: number) => void;
   voted?: boolean;
   voting?: boolean;
+  isPlatformAdmin?: boolean;
+  onPin?: (id: number, pinned: boolean) => void;
+  onStatus?: (id: number, status: string) => void;
+  onSoftDelete?: (id: number) => void;
+  onHardDelete?: (id: number) => void;
+  busy?: boolean;
 }) {
+  const pinned = !!report.is_pinned;
+  const staffMode = !!(onStatus || onPin || onSoftDelete);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
@@ -41,18 +66,19 @@ export function ReportDetailModal({
         <ReportImage path={report.image_url} className="w-full h-52 object-cover" />
 
         <div className="p-4 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={report.status} />
-            {report.confidence != null && (
-              <span className="text-xs text-slate-400">AI {Math.round(report.confidence * 100)}%</span>
-            )}
+          <ReportBadges report={report} />
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
             {report.hours_open != null && (
-              <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+              <span className="inline-flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" /> {report.hours_open}h open
+                {report.sla_hours ? ` · SLA ${report.sla_hours}h` : ""}
               </span>
             )}
-            {report.is_overdue && (
-              <span className="text-xs font-medium text-red-600">Overdue</span>
+            {pinned && (
+              <span className="inline-flex items-center gap-1 text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
+                <Pin className="w-3 h-3" /> Pinned
+              </span>
             )}
           </div>
 
@@ -60,7 +86,7 @@ export function ReportDetailModal({
             <p className="text-sm text-slate-700 leading-relaxed">{report.description}</p>
           )}
 
-          <div className="text-sm text-slate-600 space-y-1">
+          <div className="text-sm text-slate-600">
             <div className="flex items-start gap-2">
               <MapPin className="w-4 h-4 mt-0.5 text-slate-400 shrink-0" />
               <div>
@@ -95,6 +121,16 @@ export function ReportDetailModal({
                 <dd className="font-medium text-slate-700">{new Date(report.resolved_at).toLocaleString()}</dd>
               </div>
             )}
+            <div>
+              <dt className="text-slate-400">Upvotes</dt>
+              <dd className="font-medium text-slate-700">{report.upvote_count || 0}</dd>
+            </div>
+            {report.organization_id != null && (
+              <div>
+                <dt className="text-slate-400">Org ID</dt>
+                <dd className="font-medium text-slate-700">#{report.organization_id}</dd>
+              </div>
+            )}
           </dl>
 
           {onUpvote && (
@@ -111,6 +147,93 @@ export function ReportDetailModal({
               <ThumbsUp className="w-4 h-4" />
               {voted ? "You confirmed this" : "I see this too"}
               <span className="opacity-70">{report.upvote_count || 0}</span>
+            </button>
+          )}
+
+          {/* Staff / platform admin actions */}
+          {staffMode && (
+            <div className="space-y-3 border-t border-slate-100 pt-3">
+              {onStatus && (
+                <div>
+                  <label className="text-xs font-medium text-slate-500 block mb-1">Update status</label>
+                  <select
+                    className="w-full text-sm border rounded-lg px-3 py-2"
+                    value={report.status}
+                    disabled={busy}
+                    onChange={(e) => onStatus(report.id, e.target.value)}
+                  >
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {s.replace(/_/g, " ")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {onPin && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onPin(report.id, !pinned)}
+                  className={`w-full inline-flex items-center justify-center gap-2 text-sm rounded-xl py-2.5 font-medium border ${
+                    pinned
+                      ? "bg-amber-50 border-amber-300 text-amber-900"
+                      : "bg-white border-slate-200 text-slate-800"
+                  }`}
+                >
+                  <Pin className="w-4 h-4" />
+                  {pinned ? "Unpin (remove priority)" : "Pin for priority visibility"}
+                </button>
+              )}
+
+              {onSoftDelete && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm("Hide this report from public view? (soft-delete → rejected)")) {
+                      onSoftDelete(report.id);
+                    }
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 text-sm border border-red-200 text-red-700 bg-red-50 rounded-xl py-2.5 font-medium"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Soft-delete (reject & hide)
+                </button>
+              )}
+
+              {isPlatformAdmin && onHardDelete && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (confirm("PERMANENTLY delete this report? This cannot be undone.")) {
+                      onHardDelete(report.id);
+                    }
+                  }}
+                  className="w-full text-xs text-red-500 underline text-center"
+                >
+                  Platform admin: hard delete
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Public dashboard: platform admin can pin without full staff mode */}
+          {!staffMode && onPin && isPlatformAdmin && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onPin(report.id, !pinned)}
+              className={`w-full inline-flex items-center justify-center gap-2 text-sm rounded-xl py-2.5 font-medium border ${
+                pinned
+                  ? "bg-amber-50 border-amber-300 text-amber-900"
+                  : "bg-white border-slate-200 text-slate-800"
+              }`}
+            >
+              <Pin className="w-4 h-4" />
+              {pinned ? "Unpin report" : "Pin report (platform admin)"}
             </button>
           )}
         </div>

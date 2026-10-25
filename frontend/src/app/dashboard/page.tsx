@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { fetchReports, upvoteReport } from "@/lib/api";
+import { fetchReports, upvoteReport, pinReport, fetchMe } from "@/lib/api";
 import type { FaultReport } from "@/types";
 import { ReportImage } from "@/components/ReportImage";
 import { ReportDetailModal } from "@/components/ReportDetailModal";
 import { ReportBadges } from "@/components/ReportBadges";
-import { Loader2, ThumbsUp } from "lucide-react";
+import { Loader2, ThumbsUp, Pin } from "lucide-react";
+
+const TOKEN_KEY = "civicfault_authority_token";
 
 const ReportsMap = dynamic(
   () => import("@/components/ReportsMap").then((m) => m.ReportsMap),
@@ -43,6 +45,9 @@ export default function DashboardPage() {
   const [voted, setVoted] = useState<Record<number, boolean>>({});
   const [votingId, setVotingId] = useState<number | null>(null);
   const [selected, setSelected] = useState<FaultReport | null>(null);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [pinBusy, setPinBusy] = useState(false);
 
   useEffect(() => {
     fetchReports()
@@ -57,6 +62,13 @@ export default function DashboardPage() {
       if (raw) setVoted(JSON.parse(raw));
     } catch {
       /* ignore */
+    }
+    const t = localStorage.getItem(TOKEN_KEY);
+    if (t) {
+      setToken(t);
+      fetchMe(t)
+        .then((me) => setIsPlatformAdmin(me.role === "admin"))
+        .catch(() => setIsPlatformAdmin(false));
     }
   }, []);
 
@@ -83,11 +95,33 @@ export default function DashboardPage() {
     }
   }
 
+  async function onPin(id: number, pinned: boolean) {
+    if (!token || !isPlatformAdmin) return;
+    setPinBusy(true);
+    setError(null);
+    try {
+      const updated = await pinReport(id, pinned, token);
+      setItems((prev) => {
+        const next = prev.map((r) => (r.id === id ? updated : r));
+        // Pinned first
+        return [...next].sort((a, b) => Number(!!b.is_pinned) - Number(!!a.is_pinned));
+      });
+      setSelected((cur) => (cur && cur.id === id ? updated : cur));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Pin failed");
+    } finally {
+      setPinBusy(false);
+    }
+  }
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-1">Public dashboard</h1>
       <p className="text-slate-500 text-sm mb-6">
         {loading ? "Loading…" : `${total} public report${total === 1 ? "" : "s"}`}
+        {isPlatformAdmin && (
+          <span className="ml-2 text-violet-700 font-medium">· Platform admin can pin</span>
+        )}
       </p>
 
       {!loading && items.length > 0 && (
@@ -118,8 +152,15 @@ export default function DashboardPage() {
             >
               <ReportImage path={r.image_url} className="sm:w-40 h-36 sm:h-auto object-cover w-full" />
               <div className="p-4 flex-1 min-w-0">
-                <div className="font-semibold capitalize text-slate-900 mb-1.5">
-                  {r.category.replace(/_/g, " ")}
+                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                  <span className="font-semibold capitalize text-slate-900">
+                    {r.category.replace(/_/g, " ")}
+                  </span>
+                  {r.is_pinned && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">
+                      <Pin className="w-3 h-3" /> Pinned
+                    </span>
+                  )}
                 </div>
                 <ReportBadges report={r} />
                 {r.description && (
@@ -164,6 +205,9 @@ export default function DashboardPage() {
           onUpvote={onUpvote}
           voted={!!voted[selected.id]}
           voting={votingId === selected.id}
+          isPlatformAdmin={isPlatformAdmin}
+          onPin={isPlatformAdmin ? onPin : undefined}
+          busy={pinBusy}
         />
       )}
     </div>
