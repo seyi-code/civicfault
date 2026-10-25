@@ -65,6 +65,15 @@ def _row_to_response(report: FaultReport, db: Session) -> FaultReportResponse:
     )
 
 
+def _can_manage(user: AuthorityUser, report: FaultReport) -> bool:
+    """Platform admin: anything. Org staff: only their org reports."""
+    if user.role == "admin":
+        return True
+    if user.organization_id and report.organization_id == user.organization_id:
+        return True
+    return False
+
+
 @router.post("", response_model=FaultReportResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("20/minute")
 async def create_report(
@@ -261,21 +270,60 @@ def update_status(
     report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
     if not report:
         raise HTTPException(404, "Report not found")
-    if (
-        user.organization_id
-        and report.organization_id
-        and report.organization_id != user.organization_id
-        and user.role != "admin"
-    ):
+    if not _can_manage(user, report) and report.organization_id is not None:
         raise HTTPException(403, "Report belongs to another organization")
     report.status = body.status
     report.updated_at = datetime.utcnow()
     if body.status == "resolved":
         report.resolved_at = datetime.utcnow()
+    elif body.status != "resolved":
+        report.resolved_at = None
     db.add(report)
     db.commit()
     db.refresh(report)
     return _row_to_response(report, db)
+
+
+@router.delete("/{report_id}", status_code=204)
+def delete_report(
+    report_id: int,
+    hard: bool = Query(False, description="Hard delete; admin only"),
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
+    """Default: soft-delete by setting status=rejected and is_public=False.
+
+    Hard delete (purge row) only for platform role=admin.
+    Org staff may soft-delete only their org's reports.
+    """
+    report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "Report not found")
+
+    if not _can_manage(user, report):
+        # Org-less public reports: only platform admin may remove
+        if user.role != "admin":
+            raise HTTPException(
+                403,
+                "Only platform admin can remove community public reports. "
+                "Org staff may only manage reports tagged to their workspace.",
+            )
+
+    if hard:
+        if user.role != "admin":
+            raise HTTPException(403, "Hard delete is platform-admin only")
+        db.query(ReportUpvote).filter(ReportUpvote.report_id == report_id).delete()
+        db.delete(report)
+        db.commit()
+        return None
+
+    # Soft delete preserves audit trail
+    report.status = "rejected"
+    report.is_public = False
+    report.updated_at = datetime.utcnow()
+    db.add(report)
+    db.commit()
+    return None
 
 
 @router.post("/{report_id}/upvote", response_model=FaultReportResponse)

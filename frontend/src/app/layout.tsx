@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { AlertTriangle } from "lucide-react";
-import Link from "next/link";
+import { SiteHeader } from "@/components/SiteHeader";
 
 export const metadata: Metadata = {
   title: "CivicFault – Community Infrastructure Tracker",
@@ -30,25 +29,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased">
-        <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 sticky top-0 z-40">
-          <div className="max-w-6xl mx-auto flex justify-between items-center">
-            <Link href="/" className="flex items-center gap-2">
-              <AlertTriangle className="text-amber-500 w-6 h-6" />
-              <span className="font-bold text-lg tracking-tight">CivicFault</span>
-            </Link>
-            <nav className="flex gap-4 sm:gap-5 text-sm font-medium text-slate-600">
-              <Link href="/" className="hover:text-slate-900 transition">
-                Report
-              </Link>
-              <Link href="/dashboard" className="hover:text-slate-900 transition">
-                Dashboard
-              </Link>
-              <Link href="/authority" className="hover:text-slate-900 transition">
-                Authority
-              </Link>
-            </nav>
-          </div>
-        </header>
+        <SiteHeader />
         <main>{children}</main>
         <footer className="border-t border-slate-200 mt-16 py-8 text-center text-xs text-slate-400">
           CivicFault · Community-driven infrastructure transparency
