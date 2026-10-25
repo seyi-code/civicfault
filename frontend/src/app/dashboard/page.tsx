@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { fetchReports, upvoteReport, pinReport, fetchMe } from "@/lib/api";
+import { fetchReports, upvoteReport, pinReport, deleteReport, fetchMe } from "@/lib/api";
 import type { FaultReport } from "@/types";
 import { ReportImage } from "@/components/ReportImage";
 import { ReportDetailModal } from "@/components/ReportDetailModal";
@@ -49,7 +49,7 @@ export default function DashboardPage() {
   const [selected, setSelected] = useState<FaultReport | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [token, setToken] = useState<string | null>(null);
-  const [pinBusy, setPinBusy] = useState(false);
+  const [adminBusy, setAdminBusy] = useState(false);
 
   useEffect(() => {
     fetchReports()
@@ -107,10 +107,10 @@ export default function DashboardPage() {
 
   async function onPin(id: number, pinned: boolean) {
     if (!token) {
-      setError("Sign in as platform admin on Authority first, then return here to pin.");
+      setError("Sign in as platform admin on Authority first, then return here.");
       return;
     }
-    setPinBusy(true);
+    setAdminBusy(true);
     setError(null);
     try {
       const updated = await pinReport(id, pinned, token);
@@ -122,9 +122,43 @@ export default function DashboardPage() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Pin failed — need platform admin role");
     } finally {
-      setPinBusy(false);
+      setAdminBusy(false);
     }
   }
+
+  async function onSoftDelete(id: number) {
+    if (!token) return;
+    setAdminBusy(true);
+    setError(null);
+    try {
+      await deleteReport(id, token, false);
+      setItems((prev) => prev.filter((r) => r.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
+      setSelected(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Soft-delete failed");
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function onHardDelete(id: number) {
+    if (!token) return;
+    setAdminBusy(true);
+    setError(null);
+    try {
+      await deleteReport(id, token, true);
+      setItems((prev) => prev.filter((r) => r.id !== id));
+      setTotal((t) => Math.max(0, t - 1));
+      setSelected(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Hard delete failed");
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  const adminActions = isPlatformAdmin && !!token;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -132,7 +166,7 @@ export default function DashboardPage() {
       <p className="text-slate-500 text-sm mb-6">
         {loading ? "Loading…" : `${total} public report${total === 1 ? "" : "s"}`}
         {isPlatformAdmin && (
-          <span className="ml-2 text-violet-700 font-medium">· Platform admin can pin</span>
+          <span className="ml-2 text-violet-700 font-medium">· Platform admin: pin & delete</span>
         )}
       </p>
 
@@ -217,8 +251,10 @@ export default function DashboardPage() {
           voted={!!voted[selected.id]}
           voting={votingId === selected.id}
           isPlatformAdmin={isPlatformAdmin}
-          onPin={isPlatformAdmin && token ? onPin : undefined}
-          busy={pinBusy}
+          onPin={adminActions ? onPin : undefined}
+          onSoftDelete={adminActions ? onSoftDelete : undefined}
+          onHardDelete={adminActions ? onHardDelete : undefined}
+          busy={adminBusy}
         />
       )}
     </div>
