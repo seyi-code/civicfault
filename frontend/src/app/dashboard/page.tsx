@@ -6,6 +6,7 @@ import { fetchReports, upvoteReport } from "@/lib/api";
 import type { FaultReport } from "@/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ReportImage } from "@/components/ReportImage";
+import { ReportDetailModal } from "@/components/ReportDetailModal";
 import { Loader2, AlertTriangle, ThumbsUp } from "lucide-react";
 
 const ReportsMap = dynamic(
@@ -41,6 +42,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [voted, setVoted] = useState<Record<number, boolean>>({});
   const [votingId, setVotingId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<FaultReport | null>(null);
 
   useEffect(() => {
     fetchReports()
@@ -65,6 +67,7 @@ export default function DashboardPage() {
     try {
       const updated = await upvoteReport(id, getVoterHash());
       setItems((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      setSelected((cur) => (cur && cur.id === id ? updated : cur));
       const next = { ...voted, [id]: true };
       setVoted(next);
       localStorage.setItem("civicfault_voted_ids", JSON.stringify(next));
@@ -107,52 +110,65 @@ export default function DashboardPage() {
 
       <ul className="space-y-4">
         {items.map((r) => (
-          <li
-            key={r.id}
-            className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col sm:flex-row"
-          >
-            <ReportImage path={r.image_url} className="sm:w-40 h-36 sm:h-auto object-cover w-full" />
-            <div className="p-4 flex-1">
-              <div className="flex flex-wrap items-center gap-2 mb-2">
-                <span className="font-semibold capitalize">{r.category.replace(/_/g, " ")}</span>
-                <StatusBadge status={r.status} />
-                {r.is_overdue && (
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
-                    <AlertTriangle className="w-3 h-3" /> Overdue
-                  </span>
-                )}
-                {r.confidence != null && (
-                  <span className="text-xs text-slate-400">AI {Math.round(r.confidence * 100)}%</span>
-                )}
+          <li key={r.id}>
+            <button
+              type="button"
+              onClick={() => setSelected(r)}
+              className="w-full text-left bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col sm:flex-row hover:border-amber-300 hover:shadow-md transition focus:outline-none focus:ring-2 focus:ring-amber-400"
+            >
+              <ReportImage path={r.image_url} className="sm:w-40 h-36 sm:h-auto object-cover w-full" />
+              <div className="p-4 flex-1">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="font-semibold capitalize">{r.category.replace(/_/g, " ")}</span>
+                  <StatusBadge status={r.status} />
+                  {r.is_overdue && (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
+                      <AlertTriangle className="w-3 h-3" /> Overdue
+                    </span>
+                  )}
+                  {r.confidence != null && (
+                    <span className="text-xs text-slate-400">AI {Math.round(r.confidence * 100)}%</span>
+                  )}
+                </div>
+                {r.description && <p className="text-sm text-slate-600 mb-2 line-clamp-2">{r.description}</p>}
+                <p className="text-xs text-slate-500">{placeLine(r)}</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  #{r.id} · {new Date(r.created_at).toLocaleString()}
+                </p>
+                <span
+                  role="presentation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpvote(r.id);
+                  }}
+                  className={`mt-3 inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 border ${
+                    voted[r.id]
+                      ? "bg-amber-50 border-amber-200 text-amber-800"
+                      : "bg-white border-slate-200 text-slate-700"
+                  }`}
+                >
+                  <ThumbsUp className="w-4 h-4" />
+                  {voted[r.id] ? "Confirmed" : "I see this too"}
+                  <span className="text-xs text-slate-400">{r.upvote_count || 0}</span>
+                </span>
               </div>
-              {r.description && <p className="text-sm text-slate-600 mb-2">{r.description}</p>}
-              <p className="text-xs text-slate-500">{placeLine(r)}</p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                #{r.id}
-                {r.address_label ? ` · ${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}` : ""} ·{" "}
-                {new Date(r.created_at).toLocaleString()}
-              </p>
-              <button
-                type="button"
-                disabled={!!voted[r.id] || votingId === r.id}
-                onClick={() => onUpvote(r.id)}
-                className={`mt-3 inline-flex items-center gap-1.5 text-sm rounded-lg px-3 py-1.5 border ${
-                  voted[r.id]
-                    ? "bg-amber-50 border-amber-200 text-amber-800"
-                    : "bg-white border-slate-200 text-slate-700 hover:border-amber-300"
-                } disabled:opacity-70`}
-              >
-                <ThumbsUp className="w-4 h-4" />
-                {voted[r.id] ? "Confirmed" : "I see this too"}
-                <span className="text-xs text-slate-400">{r.upvote_count || 0}</span>
-              </button>
-            </div>
+            </button>
           </li>
         ))}
       </ul>
 
       {!loading && items.length === 0 && !error && (
         <p className="text-center text-slate-400 py-12">No public reports yet.</p>
+      )}
+
+      {selected && (
+        <ReportDetailModal
+          report={selected}
+          onClose={() => setSelected(null)}
+          onUpvote={onUpvote}
+          voted={!!voted[selected.id]}
+          voting={votingId === selected.id}
+        />
       )}
     </div>
   );
