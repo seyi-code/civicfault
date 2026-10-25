@@ -21,6 +21,7 @@ from app.services.ml import pipeline
 from app.services.clustering import assign_cluster
 from app.services.storage import save_upload
 from app.services.sla import hours_open, is_overdue
+from app.services.geocode import reverse_geocode
 from app.core.security import get_current_authority
 from app.core.config import settings
 from app.models.user import AuthorityUser
@@ -49,6 +50,7 @@ def _row_to_response(report: FaultReport, db: Session) -> FaultReportResponse:
         status=report.status,
         latitude=float(report.latitude),
         longitude=float(report.longitude),
+        address_label=getattr(report, "address_label", None),
         cluster_id=report.cluster_id or report.id,
         organization_id=report.organization_id,
         severity=report.severity,
@@ -95,6 +97,8 @@ async def create_report(
                 if org.visibility == "private":
                     is_public = False
 
+        address_label = await reverse_geocode(latitude, longitude)
+
         report = FaultReport(
             category=category,
             confidence=confidence,
@@ -103,6 +107,7 @@ async def create_report(
             status="pending",
             latitude=latitude,
             longitude=longitude,
+            address_label=address_label,
             cluster_id=cluster_id,
             organization_id=org_id,
             upvote_count=0,
@@ -141,30 +146,38 @@ def list_reports(
     org_slug: Optional[str] = None,
     public_only: bool = Query(True),
     overdue_only: bool = Query(False),
+    q: Optional[str] = Query(None, description="Search category, description, address"),
     bbox: Optional[str] = Query(None, description="min_lng,min_lat,max_lng,max_lat"),
     db: Session = Depends(get_db),
 ):
-    q = db.query(FaultReport)
+    query = db.query(FaultReport)
     if public_only and not organization_id and not org_slug:
-        q = q.filter(FaultReport.is_public == True)  # noqa: E712
+        query = query.filter(FaultReport.is_public == True)  # noqa: E712
     if org_slug:
         org = db.query(Organization).filter(Organization.slug == org_slug).first()
         if org:
             organization_id = org.id
     if organization_id is not None:
-        q = q.filter(FaultReport.organization_id == organization_id)
+        query = query.filter(FaultReport.organization_id == organization_id)
     if category:
-        q = q.filter(FaultReport.category == category)
+        query = query.filter(FaultReport.category == category)
     if status_filter:
-        q = q.filter(FaultReport.status == status_filter)
+        query = query.filter(FaultReport.status == status_filter)
     if cluster_id is not None:
-        q = q.filter(
+        query = query.filter(
             (FaultReport.cluster_id == cluster_id) | (FaultReport.id == cluster_id)
+        )
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            (FaultReport.category.ilike(like))
+            | (FaultReport.description.ilike(like))
+            | (FaultReport.address_label.ilike(like))
         )
     if bbox:
         try:
             min_lng, min_lat, max_lng, max_lat = [float(x) for x in bbox.split(",")]
-            q = q.filter(
+            query = query.filter(
                 FaultReport.longitude >= min_lng,
                 FaultReport.longitude <= max_lng,
                 FaultReport.latitude >= min_lat,
@@ -173,9 +186,9 @@ def list_reports(
         except ValueError:
             raise HTTPException(400, "Invalid bbox format")
 
-    total = q.count()
+    total = query.count()
     items = (
-        q.order_by(FaultReport.created_at.desc())
+        query.order_by(FaultReport.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -197,19 +210,26 @@ def list_reports(
 def list_workspace_reports(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    q: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
-    """Org-scoped reports for logged-in authority (includes private)."""
-    q = db.query(FaultReport)
+    query = db.query(FaultReport)
     if user.organization_id:
-        q = q.filter(FaultReport.organization_id == user.organization_id)
+        query = query.filter(FaultReport.organization_id == user.organization_id)
     else:
-        # no org yet — show public so console is usable
-        q = q.filter(FaultReport.is_public == True)  # noqa: E712
-    total = q.count()
+        query = query.filter(FaultReport.is_public == True)  # noqa: E712
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            (FaultReport.category.ilike(like))
+            | (FaultReport.description.ilike(like))
+            | (FaultReport.address_label.ilike(like))
+            | (FaultReport.status.ilike(like))
+        )
+    total = query.count()
     items = (
-        q.order_by(FaultReport.created_at.desc())
+        query.order_by(FaultReport.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
