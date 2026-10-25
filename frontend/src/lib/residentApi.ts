@@ -44,3 +44,13 @@ export async function fetchMyResidentReports(token: string): Promise<FaultReport
   if (!res.ok) throw new Error("Could not load your reports");
   return res.json();
 }
+
+export async function claimReport(reportId: number, token: string): Promise<FaultReport> {
+  const res = await fetch(`${API_BASE}/api/v1/residents/me/claim/${reportId}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(formatApiError(data, "Could not link report to your account"));
+  return data;
+}
