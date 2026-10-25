@@ -19,6 +19,7 @@ class FaultReportResponse(BaseModel):
     severity: Optional[str] = None
     upvote_count: int = 0
     is_public: bool = True
+    is_pinned: bool = False
     created_at: datetime
     updated_at: datetime
     resolved_at: Optional[datetime] = None
@@ -38,6 +39,10 @@ class FaultReportListResponse(BaseModel):
 class StatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(pending|confirmed|in_progress|resolved|rejected)$")
     note: Optional[str] = None
+
+
+class PinUpdate(BaseModel):
+    is_pinned: bool
 
 
 class UpvoteRequest(BaseModel):

@@ -25,7 +25,6 @@ class FaultReport(Base):
 
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    # Human-readable place from reverse geocode (e.g. "Makerere Hill Road, Kampala")
     address_label = Column(String(300), nullable=True)
 
     cluster_id = Column(Integer, ForeignKey("fault_reports.id"), nullable=True, index=True)
@@ -40,11 +39,14 @@ class FaultReport(Base):
 
     upvote_count = Column(Integer, default=0, nullable=False)
     is_public = Column(Boolean, default=True, nullable=False)
+    # Staff pin for priority visibility (not the same as community upvote)
+    is_pinned = Column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         Index("idx_fault_reports_category_status", "category", "status"),
         Index("idx_fault_reports_lat_lng", "latitude", "longitude"),
         Index("idx_fault_reports_org", "organization_id"),
+        Index("idx_fault_reports_pinned", "is_pinned"),
     )
 
 
