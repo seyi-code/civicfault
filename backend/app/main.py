@@ -9,12 +9,13 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text, inspect
 
 from app.core.config import settings
-from app.api import health, reports, clusters, auth, billing, export, orgs, cron, comments
+from app.api import health, reports, clusters, auth, billing, export, orgs, cron, comments, residents
 from app.services.storage import ensure_upload_dir
 from app.db.session import engine
 from app.db.base import Base
 from app.models import fault, user, organization, invite  # noqa: F401
 from app.models import comment as comment_model  # noqa: F401
+from app.models import resident as resident_model  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_lim
 app = FastAPI(
     title="CivicFault API",
     description="Community Infrastructure & Public Utility Fault Tracker",
-    version="1.6.0",
+    version="1.7.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -54,6 +55,7 @@ if settings.storage_backend == "local":
 
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(residents.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
 app.include_router(comments.router, prefix="/api/v1")
 app.include_router(clusters.router, prefix="/api/v1")
@@ -95,6 +97,7 @@ def _ensure_schema() -> None:
     _add_column_if_missing("fault_reports", "organization_id INTEGER")
     _add_column_if_missing("fault_reports", "address_label VARCHAR(300)")
     _add_column_if_missing("fault_reports", "is_pinned BOOLEAN DEFAULT FALSE")
+    _add_column_if_missing("fault_reports", "reporter_id INTEGER")
 
     try:
         with engine.begin() as conn:
@@ -124,7 +127,7 @@ def on_startup() -> None:
 def root():
     return {
         "name": "CivicFault",
-        "version": "1.6.0",
+        "version": "1.7.0",
         "docs": "/docs",
         "health": "/api/v1/health",
     }
