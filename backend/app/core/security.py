@@ -61,6 +61,8 @@ async def get_current_authority(
     role = payload.get("role")
     if not email or role not in ALLOWED_ROLES:
         raise HTTPException(status_code=403, detail="Authority role required")
+    if isinstance(email, str) and email.startswith("resident:"):
+        raise HTTPException(status_code=403, detail="Authority role required")
 
     from app.models.user import AuthorityUser
 
@@ -78,7 +80,6 @@ async def get_current_authority_optional(
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ):
-    """Returns AuthorityUser when Bearer token present; else None (public)."""
     if not token:
         return None
     try:
@@ -89,10 +90,59 @@ async def get_current_authority_optional(
     role = payload.get("role")
     if not email or role not in ALLOWED_ROLES:
         return None
+    if isinstance(email, str) and email.startswith("resident:"):
+        return None
     from app.models.user import AuthorityUser
 
     return (
         db.query(AuthorityUser)
         .filter(AuthorityUser.email == email, AuthorityUser.is_active == True)  # noqa: E712
+        .first()
+    )
+
+
+async def get_current_resident(
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    payload = decode_token(token)
+    sub = payload.get("sub") or ""
+    role = payload.get("role")
+    if role != "resident" or not str(sub).startswith("resident:"):
+        raise HTTPException(403, "Resident account required")
+    email = str(sub).replace("resident:", "", 1)
+    from app.models.resident import ResidentUser
+
+    user = (
+        db.query(ResidentUser)
+        .filter(ResidentUser.email == email, ResidentUser.is_active == True)  # noqa: E712
+        .first()
+    )
+    if not user:
+        raise HTTPException(401, "Resident not found or suspended")
+    return user
+
+
+async def get_current_resident_optional(
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
+    sub = payload.get("sub") or ""
+    if payload.get("role") != "resident" or not str(sub).startswith("resident:"):
+        return None
+    email = str(sub).replace("resident:", "", 1)
+    from app.models.resident import ResidentUser
+
+    return (
+        db.query(ResidentUser)
+        .filter(ResidentUser.email == email, ResidentUser.is_active == True)  # noqa: E712
         .first()
     )
