@@ -22,7 +22,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_lim
 app = FastAPI(
     title="CivicFault API",
     description="Community Infrastructure & Public Utility Fault Tracker",
-    version="1.5.2",
+    version="1.5.3",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -94,6 +94,21 @@ def _ensure_schema() -> None:
     _add_column_if_missing("fault_reports", "address_label VARCHAR(300)")
     _add_column_if_missing("fault_reports", "is_pinned BOOLEAN DEFAULT FALSE")
 
+    # Backfill: workspace-tagged reports should appear on public dashboard
+    # (rejected stay hidden). Org tag = ownership, not secrecy.
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text(
+                    "UPDATE fault_reports SET is_public = TRUE "
+                    "WHERE is_public = FALSE AND status <> 'rejected'"
+                )
+            )
+            if result.rowcount:
+                logger.info("Published %s previously hidden reports to public dashboard", result.rowcount)
+    except Exception as exc:
+        logger.warning("Public backfill skipped: %s", exc)
+
     logger.info("Database tables ready")
 
 
@@ -109,7 +124,7 @@ def on_startup() -> None:
 def root():
     return {
         "name": "CivicFault",
-        "version": "1.5.2",
+        "version": "1.5.3",
         "docs": "/docs",
         "health": "/api/v1/health",
     }
