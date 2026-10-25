@@ -4,6 +4,7 @@ from typing import Annotated, Optional
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -15,6 +16,7 @@ from app.schemas.fault import (
     FaultReportResponse,
     FaultReportListResponse,
     StatusUpdate,
+    PinUpdate,
     UpvoteRequest,
 )
 from app.services.ml import pipeline
@@ -56,6 +58,7 @@ def _row_to_response(report: FaultReport, db: Session) -> FaultReportResponse:
         severity=report.severity,
         upvote_count=report.upvote_count or 0,
         is_public=bool(report.is_public),
+        is_pinned=bool(getattr(report, "is_pinned", False)),
         created_at=report.created_at,
         updated_at=report.updated_at,
         resolved_at=report.resolved_at,
@@ -66,7 +69,6 @@ def _row_to_response(report: FaultReport, db: Session) -> FaultReportResponse:
 
 
 def _can_manage(user: AuthorityUser, report: FaultReport) -> bool:
-    """Platform admin: anything. Org staff: only their org reports."""
     if user.role == "admin":
         return True
     if user.organization_id and report.organization_id == user.organization_id:
@@ -121,6 +123,7 @@ async def create_report(
             organization_id=org_id,
             upvote_count=0,
             is_public=is_public,
+            is_pinned=False,
         )
         db.add(report)
         db.commit()
@@ -141,7 +144,7 @@ async def create_report(
         raise HTTPException(
             status_code=500,
             detail=f"{type(exc).__name__}: {str(exc)[:500]}",
-        ) from exc
+        ) from exp if False else exp if False else exc
 
 
 @router.get("", response_model=FaultReportListResponse)
@@ -155,8 +158,8 @@ def list_reports(
     org_slug: Optional[str] = None,
     public_only: bool = Query(True),
     overdue_only: bool = Query(False),
-    q: Optional[str] = Query(None, description="Search category, description, address"),
-    bbox: Optional[str] = Query(None, description="min_lng,min_lat,max_lng,max_lat"),
+    q: Optional[str] = Query(None),
+    bbox: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     query = db.query(FaultReport)
@@ -197,7 +200,7 @@ def list_reports(
 
     total = query.count()
     items = (
-        query.order_by(FaultReport.created_at.desc())
+        query.order_by(desc(FaultReport.is_pinned), FaultReport.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -238,7 +241,7 @@ def list_workspace_reports(
         )
     total = query.count()
     items = (
-        query.order_by(FaultReport.created_at.desc())
+        query.order_by(desc(FaultReport.is_pinned), FaultReport.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
@@ -284,24 +287,43 @@ def update_status(
     return _row_to_response(report, db)
 
 
-@router.delete("/{report_id}", status_code=204)
-def delete_report(
+@router.patch("/{report_id}/pin", response_model=FaultReportResponse)
+def pin_report(
     report_id: int,
-    hard: bool = Query(False, description="Hard delete; admin only"),
+    body: PinUpdate,
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
-    """Default: soft-delete by setting status=rejected and is_public=False.
+    """Staff pin/unpin for priority visibility (not community upvote)."""
+    report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "Report not found")
+    if not _can_manage(user, report) and report.organization_id is not None:
+        raise HTTPException(403, "Report belongs to another organization")
+    if not _can_manage(user, report) and user.role != "admin":
+        # Org-less public: platform admin only
+        if report.organization_id is None and user.role != "admin":
+            raise HTTPException(403, "Only platform admin can pin community reports")
+    report.is_pinned = body.is_pinned
+    report.updated_at = datetime.utcnow()
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return _row_to_response(report, db)
 
-    Hard delete (purge row) only for platform role=admin.
-    Org staff may soft-delete only their org's reports.
-    """
+
+@router.delete("/{report_id}", status_code=204)
+def delete_report(
+    report_id: int,
+    hard: bool = Query(False),
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
     report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
     if not report:
         raise HTTPException(404, "Report not found")
 
     if not _can_manage(user, report):
-        # Org-less public reports: only platform admin may remove
         if user.role != "admin":
             raise HTTPException(
                 403,
@@ -317,9 +339,9 @@ def delete_report(
         db.commit()
         return None
 
-    # Soft delete preserves audit trail
     report.status = "rejected"
     report.is_public = False
+    report.is_pinned = False
     report.updated_at = datetime.utcnow()
     db.add(report)
     db.commit()
@@ -334,6 +356,7 @@ def upvote_report(
     body: UpvoteRequest,
     db: Session = Depends(get_db),
 ):
+    """Community confirmation — any visitor, one vote per browser hash."""
     report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
     if not report:
         raise HTTPException(404, "Report not found")
