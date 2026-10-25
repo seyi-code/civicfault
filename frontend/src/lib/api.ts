@@ -54,6 +54,23 @@ export async function createReport(form: FormData): Promise<FaultReport> {
   const res = await fetch(`${API_BASE}/api/v1/reports`, { method: "POST", body: form });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(formatApiError(data, `Upload failed (${res.status})`));
+  // Link to resident account if signed in
+  if (typeof window !== "undefined" && data?.id) {
+    const rt = localStorage.getItem("civicfault_resident_token");
+    if (rt) {
+      try {
+        const claimRes = await fetch(`${API_BASE}/api/v1/residents/me/claim/${data.id}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${rt}` },
+        });
+        if (claimRes.ok) {
+          return claimRes.json();
+        }
+      } catch {
+        /* claim optional */
+      }
+    }
+  }
   return data;
 }
 
@@ -372,5 +389,14 @@ export async function createInvite(token: string, email: string, role = "authori
   if (!res.ok) throw new Error(formatApiError(data, "Invite failed"));
   return data as { accept_url: string; email: string; token: string };
 }
+
+// Resident helpers re-exported for convenience
+export {
+  registerResident,
+  loginResident,
+  fetchResidentMe,
+  fetchMyResidentReports,
+  claimReport,
+} from "@/lib/residentApi";
 
 export { API_BASE };
