@@ -52,7 +52,6 @@ export function SiteHeader() {
           <AlertTriangle className="w-6 h-6 shrink-0" style={{ color: accent }} />
           <div className="min-w-0">
             <div className="font-bold text-lg tracking-tight leading-tight">CivicFault</div>
-            {/* Mobile only: workspace under brand */}
             {orgName && (
               <div
                 className="sm:hidden text-[11px] font-medium truncate max-w-[9rem] leading-tight"
@@ -63,7 +62,6 @@ export function SiteHeader() {
               </div>
             )}
           </div>
-          {/* Desktop: chip beside brand (unchanged) */}
           {orgName && (
             <span
               className="hidden sm:inline-flex items-center max-w-[10rem] truncate text-xs font-semibold px-2 py-0.5 rounded-full text-white"
@@ -74,12 +72,15 @@ export function SiteHeader() {
             </span>
           )}
         </Link>
-        <nav className="flex gap-4 sm:gap-5 text-sm font-medium text-slate-600 shrink-0">
+        <nav className="flex gap-3 sm:gap-5 text-sm font-medium text-slate-600 shrink-0">
           <Link href="/" className="hover:text-slate-900 transition">
             Report
           </Link>
           <Link href="/dashboard" className="hover:text-slate-900 transition">
             Dashboard
+          </Link>
+          <Link href="/resident" className="hover:text-slate-900 transition">
+            My reports
           </Link>
           <Link href="/authority" className="hover:text-slate-900 transition">
             Authority
