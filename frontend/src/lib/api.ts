@@ -57,6 +57,30 @@ export async function createReport(form: FormData): Promise<FaultReport> {
   return data;
 }
 
+export async function editReport(
+  reportId: number,
+  body: {
+    description?: string | null;
+    category?: string;
+    address_label?: string | null;
+    severity?: string | null;
+    status?: string;
+  },
+  token: string
+): Promise<FaultReport> {
+  const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(formatApiError(data, "Edit failed"));
+  return data;
+}
+
 export async function fetchComments(reportId: number) {
   const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/comments`, { cache: "no-store" });
   if (!res.ok) throw new Error("Could not load discussion");
