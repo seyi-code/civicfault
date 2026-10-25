@@ -1,6 +1,6 @@
 "use client";
 
-import { X, MapPin, Clock, Trash2 } from "lucide-react";
+import { X, MapPin, Clock, Trash2, Pin } from "lucide-react";
 import type { FaultReport, FaultStatus } from "@/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ReportImage } from "@/components/ReportImage";
@@ -18,6 +18,7 @@ export function AuthorityReportModal({
   role,
   onClose,
   onStatus,
+  onPin,
   onSoftDelete,
   onHardDelete,
   busy,
@@ -26,11 +27,13 @@ export function AuthorityReportModal({
   role: string;
   onClose: () => void;
   onStatus: (id: number, status: string) => void;
+  onPin?: (id: number, pinned: boolean) => void;
   onSoftDelete: (id: number) => void;
   onHardDelete?: (id: number) => void;
   busy?: boolean;
 }) {
   const isPlatformAdmin = role === "admin";
+  const pinned = !!report.is_pinned;
 
   return (
     <div
@@ -55,6 +58,11 @@ export function AuthorityReportModal({
         <div className="p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={report.status} />
+            {pinned && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                <Pin className="w-3 h-3" /> Pinned
+              </span>
+            )}
             {report.hours_open != null && (
               <span className="inline-flex items-center gap-1 text-xs text-slate-500">
                 <Clock className="w-3.5 h-3.5" /> {report.hours_open}h open
@@ -75,17 +83,6 @@ export function AuthorityReportModal({
             </div>
           </div>
 
-          <dl className="grid grid-cols-2 gap-2 text-xs text-slate-500 border-t pt-3">
-            <div>
-              <dt className="text-slate-400">ID</dt>
-              <dd className="font-medium text-slate-700">#{report.id}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-400">Filed</dt>
-              <dd className="font-medium text-slate-700">{new Date(report.created_at).toLocaleString()}</dd>
-            </div>
-          </dl>
-
           <div>
             <label className="text-xs font-medium text-slate-500 block mb-1">Update status</label>
             <select
@@ -101,6 +98,22 @@ export function AuthorityReportModal({
               ))}
             </select>
           </div>
+
+          {onPin && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onPin(report.id, !pinned)}
+              className={`w-full inline-flex items-center justify-center gap-2 text-sm rounded-xl py-2.5 font-medium border ${
+                pinned
+                  ? "bg-amber-50 border-amber-300 text-amber-900"
+                  : "bg-white border-slate-200 text-slate-800"
+              }`}
+            >
+              <Pin className="w-4 h-4" />
+              {pinned ? "Unpin (remove priority)" : "Pin for priority visibility"}
+            </button>
+          )}
 
           <div className="flex flex-col gap-2 border-t pt-3">
             <button
@@ -130,9 +143,6 @@ export function AuthorityReportModal({
                 Platform admin: hard delete
               </button>
             )}
-            <p className="text-[11px] text-slate-400 text-center">
-              Soft-delete keeps an audit trail. Hard delete is platform-admin only.
-            </p>
           </div>
         </div>
       </div>
