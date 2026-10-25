@@ -22,7 +22,7 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_lim
 app = FastAPI(
     title="CivicFault API",
     description="Community Infrastructure & Public Utility Fault Tracker",
-    version="1.5.1",
+    version="1.5.2",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -92,6 +92,7 @@ def _ensure_schema() -> None:
     _add_column_if_missing("authority_users", "organization_id INTEGER")
     _add_column_if_missing("fault_reports", "organization_id INTEGER")
     _add_column_if_missing("fault_reports", "address_label VARCHAR(300)")
+    _add_column_if_missing("fault_reports", "is_pinned BOOLEAN DEFAULT FALSE")
 
     logger.info("Database tables ready")
 
@@ -108,7 +109,7 @@ def on_startup() -> None:
 def root():
     return {
         "name": "CivicFault",
-        "version": "1.5.1",
+        "version": "1.5.2",
         "docs": "/docs",
         "health": "/api/v1/health",
     }
