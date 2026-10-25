@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { fetchReports, upvoteReport, pinReport, deleteReport, fetchMe } from "@/lib/api";
+import { fetchReports, upvoteReport, pinReport, deleteReport, editReport, fetchMe } from "@/lib/api";
 import type { FaultReport } from "@/types";
 import { ReportImage } from "@/components/ReportImage";
-import { ReportDetailModal } from "@/components/ReportDetailModal";
+import { ReportDetailModal, type ReportEditPayload } from "@/components/ReportDetailModal";
 import { ReportBadges } from "@/components/ReportBadges";
 import { formatDateTime } from "@/lib/format";
 import { Loader2, ThumbsUp, Pin } from "lucide-react";
@@ -76,9 +76,7 @@ export default function DashboardPage() {
           setIsPlatformAdmin(admin);
           if (me.role) localStorage.setItem(ROLE_KEY, me.role);
         })
-        .catch(() => {
-          /* keep roleHint */
-        });
+        .catch(() => {});
     }
   }, []);
 
@@ -106,10 +104,7 @@ export default function DashboardPage() {
   }
 
   async function onPin(id: number, pinned: boolean) {
-    if (!token) {
-      setError("Sign in as platform admin on Authority first, then return here.");
-      return;
-    }
+    if (!token) return;
     setAdminBusy(true);
     setError(null);
     try {
@@ -120,7 +115,23 @@ export default function DashboardPage() {
       });
       setSelected((cur) => (cur && cur.id === id ? updated : cur));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Pin failed — need platform admin role");
+      setError(e instanceof Error ? e.message : "Pin failed");
+    } finally {
+      setAdminBusy(false);
+    }
+  }
+
+  async function onEdit(id: number, body: ReportEditPayload) {
+    if (!token) return;
+    setAdminBusy(true);
+    setError(null);
+    try {
+      const updated = await editReport(id, body, token);
+      setItems((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      setSelected((cur) => (cur && cur.id === id ? updated : cur));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Edit failed");
+      throw e;
     } finally {
       setAdminBusy(false);
     }
@@ -166,7 +177,7 @@ export default function DashboardPage() {
       <p className="text-slate-500 text-sm mb-6">
         {loading ? "Loading…" : `${total} public report${total === 1 ? "" : "s"}`}
         {isPlatformAdmin && (
-          <span className="ml-2 text-violet-700 font-medium">· Platform admin: pin & delete</span>
+          <span className="ml-2 text-violet-700 font-medium">· Platform admin: edit · pin · delete</span>
         )}
       </p>
 
@@ -254,6 +265,7 @@ export default function DashboardPage() {
           onPin={adminActions ? onPin : undefined}
           onSoftDelete={adminActions ? onSoftDelete : undefined}
           onHardDelete={adminActions ? onHardDelete : undefined}
+          onEdit={adminActions ? onEdit : undefined}
           busy={adminBusy}
         />
       )}
