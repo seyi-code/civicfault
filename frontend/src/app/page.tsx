@@ -2,8 +2,9 @@
 
 import { useState, FormEvent, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { Camera, MapPin, Loader2, CheckCircle2 } from "lucide-react";
+import { Camera, MapPin, Loader2, CheckCircle2, WifiOff } from "lucide-react";
 import { createReport, mediaUrl, API_BASE } from "@/lib/api";
+import { enqueueMeta, isOnline, listQueued } from "@/lib/offlineQueue";
 import type { FaultReport } from "@/types";
 
 function ReportForm() {
@@ -21,6 +22,8 @@ function ReportForm() {
   const [locating, setLocating] = useState(false);
   const [locOk, setLocOk] = useState(false);
   const [orgLabel, setOrgLabel] = useState<string | null>(null);
+  const [queuedCount, setQueuedCount] = useState(0);
+  const [offlineNote, setOfflineNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!orgSlug) return;
@@ -31,8 +34,18 @@ function ReportForm() {
   }, [orgSlug]);
 
   useEffect(() => {
+    setQueuedCount(listQueued().length);
+    const on = () => setQueuedCount(listQueued().length);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", on);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", on);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!result) return;
-    // Scroll to success card after paint
     const t = setTimeout(() => {
       resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
@@ -72,6 +85,7 @@ function ReportForm() {
     e.preventDefault();
     setError(null);
     setResult(null);
+    setOfflineNote(null);
     if (!file) {
       setError("Please choose a photo");
       return;
@@ -80,6 +94,22 @@ function ReportForm() {
       setError("Set location (Use my location or type coordinates)");
       return;
     }
+
+    // Offline: store metadata note — photos cannot be fully queued without IndexedDB binary storage yet
+    if (!isOnline()) {
+      enqueueMeta({
+        latitude: parseFloat(lat),
+        longitude: parseFloat(lng),
+        description: description.trim() || undefined,
+        org_slug: orgSlug || undefined,
+      });
+      setQueuedCount(listQueued().length);
+      setOfflineNote(
+        "You're offline. Location & notes were saved on this phone. Reconnect and submit again with the same photo to complete the report."
+      );
+      return;
+    }
+
     const form = new FormData();
     form.append("latitude", lat);
     form.append("longitude", lng);
@@ -94,7 +124,19 @@ function ReportForm() {
       setFile(null);
       setDescription("");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      // Network failure mid-request → queue meta
+      if (!isOnline()) {
+        enqueueMeta({
+          latitude: parseFloat(lat),
+          longitude: parseFloat(lng),
+          description: description.trim() || undefined,
+          org_slug: orgSlug || undefined,
+        });
+        setQueuedCount(listQueued().length);
+        setOfflineNote("Network dropped. Draft saved locally — retry when online.");
+      } else {
+        setError(err instanceof Error ? err.message : "Upload failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -108,6 +150,13 @@ function ReportForm() {
           ? `Reporting to ${orgLabel}`
           : "Snap a photo of a pothole, leak, waste pile, or other infrastructure issue."}
       </p>
+
+      {queuedCount > 0 && (
+        <div className="mb-4 flex items-start gap-2 text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-3 py-2">
+          <WifiOff className="w-4 h-4 mt-0.5 shrink-0" />
+          {queuedCount} offline draft{queuedCount === 1 ? "" : "s"} on this device. Submit again when online with a photo.
+        </div>
+      )}
 
       <form onSubmit={onSubmit} className="space-y-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
         <div>
@@ -147,6 +196,9 @@ function ReportForm() {
         </div>
 
         {error && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>}
+        {offlineNote && (
+          <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{offlineNote}</div>
+        )}
 
         <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-semibold rounded-xl py-3 transition">
           {loading ? (<><Loader2 className="w-5 h-5 animate-spin" /> Submitting…</>) : "Submit report"}
