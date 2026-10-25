@@ -1,4 +1,5 @@
 from typing import Optional, List
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
@@ -8,7 +9,7 @@ from app.db.session import get_db
 from app.models.resident import ResidentUser
 from app.models.fault import FaultReport
 from app.core.security import hash_password, verify_password, create_access_token
-from app.core.security import get_current_resident, get_current_resident_optional
+from app.core.security import get_current_resident
 from app.schemas.fault import FaultReportResponse
 from app.api.reports import _row_to_response
 
@@ -48,7 +49,6 @@ def register(body: ResidentRegister, db: Session = Depends(get_db)):
     email = body.email.lower().strip()
     if db.query(ResidentUser).filter(ResidentUser.email == email).first():
         raise HTTPException(400, "Email already registered")
-    # Also block if same email is a staff account (clarity)
     from app.models.user import AuthorityUser
 
     if db.query(AuthorityUser).filter(AuthorityUser.email == email).first():
@@ -95,3 +95,28 @@ def my_reports(
         .all()
     )
     return [_row_to_response(r, db) for r in rows]
+
+
+@router.post("/me/claim/{report_id}", response_model=FaultReportResponse)
+def claim_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    user: ResidentUser = Depends(get_current_resident),
+):
+    """Attach a recently filed guest report to this resident (within 15 minutes, unowned)."""
+    report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
+    if not report:
+        raise HTTPException(404, "Report not found")
+    if report.reporter_id and report.reporter_id != user.id:
+        raise HTTPException(403, "Report already belongs to another account")
+    if report.reporter_id == user.id:
+        return _row_to_response(report, db)
+    # Only claim fresh reports to limit abuse
+    if report.created_at and report.created_at < datetime.utcnow() - timedelta(minutes=15):
+        raise HTTPException(400, "Report too old to claim — file again while signed in")
+    report.reporter_id = user.id
+    report.updated_at = datetime.utcnow()
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return _row_to_response(report, db)
