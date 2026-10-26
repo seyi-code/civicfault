@@ -31,7 +31,16 @@ export async function fetchResidentMe(token: string) {
   const res = await fetch(`${API_BASE}/api/v1/residents/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error("Session expired");
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const detail =
+      typeof (data as { detail?: unknown }).detail === "string"
+        ? (data as { detail: string }).detail
+        : res.status === 401 || res.status === 403
+          ? "Session expired"
+          : `Could not load profile (${res.status})`;
+    throw new Error(detail);
+  }
   return res.json() as Promise<{ email: string; full_name?: string; phone?: string }>;
 }
 
