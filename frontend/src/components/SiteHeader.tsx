@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { fetchMyOrg } from "@/lib/api";
+import { fetchMyOrg, fetchMe } from "@/lib/api";
 
 const TOKEN_KEY = "civicfault_authority_token";
 
@@ -17,16 +17,21 @@ export function SiteHeader() {
   const [orgName, setOrgName] = useState<string | null>(null);
   const [orgSlug, setOrgSlug] = useState<string | null>(null);
   const [accent, setAccent] = useState("#f59e0b");
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) {
       setOrgName(null);
       setOrgSlug(null);
+      setIsPlatformAdmin(false);
       setAccent("#f59e0b");
       document.documentElement.style.setProperty("--cf-accent", "#f59e0b");
       return;
     }
+    fetchMe(token)
+      .then((me) => setIsPlatformAdmin(me.role === "admin"))
+      .catch(() => setIsPlatformAdmin(false));
     fetchMyOrg(token)
       .then((o) => {
         if (o) {
@@ -81,6 +86,11 @@ export function SiteHeader() {
           <Link href="/authority" className="hover:text-slate-900 transition whitespace-nowrap">
             Authority
           </Link>
+          {isPlatformAdmin && (
+            <Link href="/admin" className="hover:text-violet-800 text-violet-700 transition whitespace-nowrap">
+              Admin
+            </Link>
+          )}
         </nav>
       </div>
     </header>
