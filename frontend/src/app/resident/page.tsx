@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, LogOut, User, Settings } from "lucide-react";
+import { Loader2, LogOut, User, Settings, Eye, EyeOff } from "lucide-react";
 import {
   registerResident,
   loginResident,
@@ -14,6 +14,7 @@ import {
   unfollowWorkspace,
   type WorkspaceFollow,
 } from "@/lib/residentApi";
+import { API_BASE } from "@/lib/api";
 import type { FaultReport } from "@/types";
 import { ReportImage } from "@/components/ReportImage";
 import { ReportBadges } from "@/components/ReportBadges";
@@ -22,29 +23,40 @@ import { formatDateTime } from "@/lib/format";
 
 const RES_TOKEN = "civicfault_resident_token";
 
+async function fetchOrgReports(slug: string): Promise<FaultReport[]> {
+  const res = await fetch(
+    `${API_BASE}/api/v1/reports?org_slug=${encodeURIComponent(slug)}&public_only=false&page_size=30`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.items || [];
+}
+
 export default function ResidentPage() {
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState("");
   const [mode, setMode] = useState<"login" | "register">("login");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [me, setMe] = useState<{
-    email: string;
-    full_name?: string;
-    phone?: string;
-  } | null>(null);
+  const [me, setMe] = useState<{ email: string; full_name?: string; phone?: string } | null>(null);
   const [reports, setReports] = useState<FaultReport[]>([]);
+  const [followingFeed, setFollowingFeed] = useState<FaultReport[]>([]);
   const [selected, setSelected] = useState<FaultReport | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [profileName, setProfileName] = useState("");
   const [profilePhone, setProfilePhone] = useState("");
   const [curPass, setCurPass] = useState("");
   const [newPass, setNewPass] = useState("");
+  const [showCurPass, setShowCurPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
   const [follows, setFollows] = useState<WorkspaceFollow[]>([]);
   const [followSlug, setFollowSlug] = useState("");
+  const [tab, setTab] = useState<"mine" | "following">("mine");
 
   useEffect(() => {
     const t = localStorage.getItem(RES_TOKEN);
@@ -54,12 +66,23 @@ export default function ResidentPage() {
   useEffect(() => {
     if (!token) return;
     Promise.all([fetchResidentMe(token), fetchMyResidentReports(token), fetchFollows(token)])
-      .then(([m, list, f]) => {
+      .then(async ([m, list, f]) => {
         setMe(m);
         setProfileName(m.full_name || "");
         setProfilePhone(m.phone || "");
         setReports(list);
         setFollows(f);
+        if (f.length) {
+          const batches = await Promise.all(f.map((x) => fetchOrgReports(x.slug)));
+          const merged = batches.flat();
+          const byId = new Map<number, FaultReport>();
+          merged.forEach((r) => byId.set(r.id, r));
+          setFollowingFeed(
+            [...byId.values()].sort(
+              (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )
+          );
+        } else setFollowingFeed([]);
       })
       .catch((e) => {
         setError(e.message);
@@ -124,6 +147,14 @@ export default function ResidentPage() {
       );
       setFollowSlug("");
       setInfo(`Following ${f.name}`);
+      const items = await fetchOrgReports(f.slug);
+      setFollowingFeed((prev) => {
+        const map = new Map(prev.map((r) => [r.id, r]));
+        items.forEach((r) => map.set(r.id, r));
+        return [...map.values()].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+      });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Follow failed");
     } finally {
@@ -147,6 +178,48 @@ export default function ResidentPage() {
     setMe(null);
     setReports([]);
     setFollows([]);
+    setFollowingFeed([]);
+  }
+
+  function renderList(items: FaultReport[]) {
+    if (!items.length) {
+      return (
+        <div className="text-center py-10 text-slate-400 text-sm">
+          {tab === "mine" ? (
+            <>
+              No reports linked yet.{" "}
+              <Link href="/" className="text-amber-700 underline">
+                File while signed in
+              </Link>
+            </>
+          ) : (
+            "Follow a workspace to see its reports here."
+          )}
+        </div>
+      );
+    }
+    return (
+      <ul className="space-y-3">
+        {items.map((r) => (
+          <li key={r.id}>
+            <button
+              type="button"
+              onClick={() => setSelected(r)}
+              className="w-full text-left bg-white border rounded-2xl overflow-hidden flex flex-col sm:flex-row hover:border-amber-300"
+            >
+              <ReportImage path={r.image_url} className="sm:w-36 h-28 object-cover w-full" />
+              <div className="p-3 flex-1 min-w-0">
+                <div className="font-semibold capitalize">{r.category.replace(/_/g, " ")}</div>
+                <ReportBadges report={r} />
+                <p className="text-xs text-slate-400 mt-1">
+                  #{r.id} · {formatDateTime(r.created_at)}
+                </p>
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
   }
 
   if (!token) {
@@ -154,7 +227,7 @@ export default function ResidentPage() {
       <div className="max-w-md mx-auto px-4 py-10">
         <h1 className="text-2xl font-bold mb-1">Resident account</h1>
         <p className="text-sm text-slate-500 mb-6">
-          Track reports, edit profile, follow your estate. Free — not staff login.
+          Track reports, follow estates. Free — not staff login.
         </p>
         <form onSubmit={onAuth} className="bg-white border rounded-2xl p-5 space-y-3 shadow-sm">
           {mode === "register" && (
@@ -173,15 +246,25 @@ export default function ResidentPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          <input
-            type="password"
-            required
-            minLength={8}
-            className="w-full border rounded-lg px-3 py-2 text-sm"
-            placeholder="Password (min 8)"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              required
+              minLength={8}
+              className="w-full border rounded-lg px-3 py-2 pr-10 text-sm"
+              placeholder="Password (min 8)"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label="Toggle password visibility"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
           {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
           <button
             type="submit"
@@ -199,7 +282,7 @@ export default function ResidentPage() {
           </button>
         </form>
         <p className="text-xs text-slate-400 mt-4 text-center">
-          Staff? Use <Link href="/authority" className="underline">Authority console</Link>
+          Staff? <Link href="/authority" className="underline">Authority console</Link>
         </p>
       </div>
     );
@@ -207,9 +290,9 @@ export default function ResidentPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      <div className="flex flex-wrap justify-between items-start gap-3 mb-6">
+      <div className="flex flex-wrap justify-between items-start gap-3 mb-4">
         <div>
-          <h1 className="text-2xl font-bold">My reports</h1>
+          <h1 className="text-2xl font-bold">Resident</h1>
           <p className="text-sm text-slate-500 flex items-center gap-1.5">
             <User className="w-4 h-4" />
             {me?.full_name || me?.email}
@@ -229,11 +312,7 @@ export default function ResidentPage() {
           >
             New report
           </Link>
-          <button
-            type="button"
-            onClick={logout}
-            className="text-sm text-slate-500 inline-flex items-center gap-1 px-2"
-          >
+          <button type="button" onClick={logout} className="text-sm text-slate-500 inline-flex items-center gap-1 px-2">
             <LogOut className="w-4 h-4" /> Sign out
           </button>
         </div>
@@ -258,31 +337,40 @@ export default function ResidentPage() {
             value={profilePhone}
             onChange={(e) => setProfilePhone(e.target.value)}
           />
-          <input
-            type="password"
-            className="w-full border rounded-lg px-3 py-2 text-sm"
-            placeholder="Current password (if changing)"
-            value={curPass}
-            onChange={(e) => setCurPass(e.target.value)}
-          />
-          <input
-            type="password"
-            className="w-full border rounded-lg px-3 py-2 text-sm"
-            placeholder="New password"
-            value={newPass}
-            onChange={(e) => setNewPass(e.target.value)}
-          />
+          <div className="relative">
+            <input
+              type={showCurPass ? "text" : "password"}
+              className="w-full border rounded-lg px-3 py-2 pr-10 text-sm"
+              placeholder="Current password (if changing)"
+              value={curPass}
+              onChange={(e) => setCurPass(e.target.value)}
+            />
+            <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400" onClick={() => setShowCurPass((v) => !v)}>
+              {showCurPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <div className="relative">
+            <input
+              type={showNewPass ? "text" : "password"}
+              className="w-full border rounded-lg px-3 py-2 pr-10 text-sm"
+              placeholder="New password"
+              value={newPass}
+              onChange={(e) => setNewPass(e.target.value)}
+            />
+            <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400" onClick={() => setShowNewPass((v) => !v)}>
+              {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
           <button type="submit" disabled={busy} className="w-full bg-slate-900 text-white rounded-xl py-2 text-sm">
             Save profile
           </button>
         </form>
       )}
 
-      <div className="mb-6 bg-white border rounded-2xl p-4">
+      <div className="mb-4 bg-white border rounded-2xl p-4">
         <h2 className="font-semibold text-sm mb-2">Follow a workspace</h2>
         <p className="text-xs text-slate-500 mb-3">
-          Enter the estate slug from the resident link (e.g. <code className="bg-slate-100 px-1 rounded">code-estate</code>
-          from <code className="bg-slate-100 px-1 rounded">/?org=code-estate</code>). You&apos;ll see it listed here; staff still own triage.
+          Use the slug from the resident link (e.g. <code className="bg-slate-100 px-1 rounded">lc1</code>).
         </p>
         <form onSubmit={onFollow} className="flex gap-2">
           <input
@@ -300,8 +388,7 @@ export default function ResidentPage() {
             {follows.map((f) => (
               <li key={f.organization_id} className="flex justify-between items-center text-sm">
                 <span>
-                  <strong>{f.name}</strong>{" "}
-                  <span className="text-slate-400">({f.slug})</span>
+                  <strong>{f.name}</strong> <span className="text-slate-400">({f.slug})</span>
                 </span>
                 <button type="button" className="text-xs text-red-600" onClick={() => onUnfollow(f.slug)}>
                   Unfollow
@@ -312,36 +399,28 @@ export default function ResidentPage() {
         )}
       </div>
 
-      {reports.length === 0 ? (
-        <div className="text-center py-12 text-slate-400 text-sm">
-          No reports linked to this account yet.
-          <br />
-          <Link href="/" className="text-amber-700 underline mt-2 inline-block">
-            File a report while signed in
-          </Link>
-        </div>
-      ) : (
-        <ul className="space-y-3">
-          {reports.map((r) => (
-            <li key={r.id}>
-              <button
-                type="button"
-                onClick={() => setSelected(r)}
-                className="w-full text-left bg-white border rounded-2xl overflow-hidden flex flex-col sm:flex-row hover:border-amber-300"
-              >
-                <ReportImage path={r.image_url} className="sm:w-36 h-28 object-cover w-full" />
-                <div className="p-3 flex-1 min-w-0">
-                  <div className="font-semibold capitalize">{r.category.replace(/_/g, " ")}</div>
-                  <ReportBadges report={r} />
-                  <p className="text-xs text-slate-400 mt-1">
-                    #{r.id} · {formatDateTime(r.created_at)}
-                  </p>
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="flex gap-2 mb-4">
+        <button
+          type="button"
+          onClick={() => setTab("mine")}
+          className={`text-sm rounded-lg px-3 py-1.5 border font-medium ${
+            tab === "mine" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600"
+          }`}
+        >
+          My reports ({reports.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("following")}
+          className={`text-sm rounded-lg px-3 py-1.5 border font-medium ${
+            tab === "following" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600"
+          }`}
+        >
+          Following ({followingFeed.length})
+        </button>
+      </div>
+
+      {renderList(tab === "mine" ? reports : followingFeed)}
 
       {selected && <ReportDetailModal report={selected} onClose={() => setSelected(null)} />}
     </div>
