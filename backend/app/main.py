@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text, inspect
 
 from app.core.config import settings
-from app.api import health, reports, clusters, auth, billing, export, orgs, cron, comments, residents
+from app.api import health, reports, clusters, auth, billing, export, orgs, cron, comments, residents, admin_panel
 from app.services.storage import ensure_upload_dir
 from app.db.session import engine
 from app.db.base import Base
@@ -62,6 +62,7 @@ app.include_router(clusters.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(orgs.router, prefix="/api/v1")
+app.include_router(admin_panel.router, prefix="/api/v1")
 app.include_router(cron.router, prefix="/api/v1")
 
 
