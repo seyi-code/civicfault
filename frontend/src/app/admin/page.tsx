@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PlatformAdminPanel } from "@/components/PlatformAdminPanel";
-import { fetchMe } from "@/lib/api";
+import { OrgFollowersPanel } from "@/components/OrgFollowersPanel";
+import { fetchMe, fetchMyOrg } from "@/lib/api";
 
 const TOKEN_KEY = "civicfault_authority_token";
 
 export default function AdminPage() {
   const [token, setToken] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
+  const [hasOrg, setHasOrg] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -19,12 +21,15 @@ export default function AdminPage() {
       return;
     }
     setToken(t);
-    fetchMe(t)
-      .then((me) => {
+    Promise.all([fetchMe(t), fetchMyOrg(t)])
+      .then(([me, org]) => {
         if (me.role !== "admin") {
           setError("Platform admin role required.");
           setOk(false);
-        } else setOk(true);
+        } else {
+          setOk(true);
+          setHasOrg(!!org);
+        }
       })
       .catch(() => setError("Session invalid — sign in on Authority."));
   }, []);
@@ -40,6 +45,7 @@ export default function AdminPage() {
       </p>
       {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 mb-4">{error}</div>}
       {ok && token && <PlatformAdminPanel token={token} />}
+      {ok && token && hasOrg && <OrgFollowersPanel token={token} />}
     </div>
   );
 }
