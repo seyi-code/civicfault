@@ -20,9 +20,6 @@ def _require_platform_admin(user: AuthorityUser) -> None:
         raise HTTPException(403, "Platform admin only")
 
 
-# —— Staff (authority users) ——
-
-
 class StaffOut(BaseModel):
     id: int
     email: str
@@ -37,6 +34,7 @@ class StaffOut(BaseModel):
 
 class StaffPatch(BaseModel):
     full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
     role: Optional[str] = Field(None, pattern=r"^(authority|manager|admin)$")
     organization_id: Optional[int] = None
     clear_organization: Optional[bool] = None
@@ -109,8 +107,20 @@ def patch_staff(
         if other == 0:
             raise HTTPException(400, "Cannot demote or deactivate the only platform admin")
 
+    # Non-admin staff cannot be promoted to platform admin via this form's normal path is UI-enforced;
+    # still allow admin to set admin explicitly if needed for recovery.
     if body.full_name is not None:
         target.full_name = body.full_name.strip() or None
+    if body.email is not None:
+        new_email = str(body.email).lower().strip()
+        clash = (
+            db.query(AuthorityUser)
+            .filter(AuthorityUser.email == new_email, AuthorityUser.id != target.id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(400, "Email already used by another staff account")
+        target.email = new_email
     if body.role is not None:
         target.role = body.role
     if body.clear_organization:
@@ -154,7 +164,6 @@ def deactivate_staff(
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
-    """Soft-delete: deactivate account (no hard delete of staff rows)."""
     _require_platform_admin(user)
     target = db.query(AuthorityUser).filter(AuthorityUser.id == staff_id).first()
     if not target:
@@ -177,9 +186,6 @@ def deactivate_staff(
     db.add(target)
     db.commit()
     return None
-
-
-# —— Organizations ——
 
 
 class OrgAdminOut(BaseModel):
@@ -266,7 +272,6 @@ def deactivate_organization(
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
-    """Soft-delete org: is_active=false. Reports kept; slug stays reserved."""
     _require_platform_admin(user)
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
