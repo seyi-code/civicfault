@@ -77,7 +77,6 @@ def login_resident(body: ResidentLogin, db: Session = Depends(get_db)):
         raise HTTPException(401, "Invalid credentials")
     if not user.is_active:
         raise HTTPException(403, "Account suspended")
-    # Must match get_current_resident: sub="resident:<email>", role="resident"
     token = create_access_token(subject=f"resident:{user.email}", role="resident")
     return TokenOut(access_token=token)
 
@@ -119,7 +118,8 @@ def my_reports(
         .limit(100)
         .all()
     )
-    return [_row_to_response(r) for r in rows]
+    # Must pass db — _row_to_response(report, db)
+    return [_row_to_response(r, db) for r in rows]
 
 
 @router.post("/me/claim/{report_id}")
@@ -137,7 +137,7 @@ def claim_report(
     db.add(r)
     db.commit()
     db.refresh(r)
-    return _row_to_response(r)
+    return _row_to_response(r, db)
 
 
 class FollowIn(BaseModel):
