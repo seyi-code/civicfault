@@ -16,6 +16,7 @@ class FaultReportResponse(BaseModel):
     address_label: Optional[str] = None
     cluster_id: Optional[int] = None
     organization_id: Optional[int] = None
+    reporter_id: Optional[int] = None
     severity: Optional[str] = None
     upvote_count: int = 0
     is_public: bool = True
