@@ -41,37 +41,23 @@ class ResidentOut(BaseModel):
         from_attributes = True
 
 
-class ResidentToken(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    role: str = "resident"
-
-
-class ResidentProfileUpdate(BaseModel):
+class ResidentProfilePatch(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = Field(None, min_length=8)
 
 
-class FollowBody(BaseModel):
-    org_slug: str
-
-
-class FollowOut(BaseModel):
-    organization_id: int
-    slug: str
-    name: str
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 @router.post("/register", response_model=ResidentOut, status_code=201)
-def register(body: ResidentRegister, db: Session = Depends(get_db)):
+def register_resident(body: ResidentRegister, db: Session = Depends(get_db)):
     email = body.email.lower().strip()
     if db.query(ResidentUser).filter(ResidentUser.email == email).first():
         raise HTTPException(400, "Email already registered")
-    if db.query(AuthorityUser).filter(AuthorityUser.email == email).first():
-        raise HTTPException(400, "Email already used for a staff account — use another email")
-
     user = ResidentUser(
         email=email,
         hashed_password=hash_password(body.password),
@@ -84,15 +70,15 @@ def register(body: ResidentRegister, db: Session = Depends(get_db)):
     return user
 
 
-@router.post("/login", response_model=ResidentToken)
-def login(body: ResidentLogin, db: Session = Depends(get_db)):
-    user = db.query(ResidentUser).filter(ResidentUser.email == body.email.lower().strip()).first()
+@router.post("/login", response_model=TokenOut)
+def login_resident(body: ResidentLogin, db: Session = Depends(get_db)):
+    user = db.query(ResidentUser).filter(ResidentUser.email == body.email.lower()).first()
     if not user or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(401, "Invalid email or password")
+        raise HTTPException(401, "Invalid credentials")
     if not user.is_active:
         raise HTTPException(403, "Account suspended")
-    token = create_access_token(subject=f"resident:{user.email}", role="resident")
-    return ResidentToken(access_token=token)
+    token = create_access_token({"sub": str(user.id), "role": "resident", "typ": "resident"})
+    return TokenOut(access_token=token)
 
 
 @router.get("/me", response_model=ResidentOut)
@@ -101,8 +87,8 @@ def me(user: ResidentUser = Depends(get_current_resident)):
 
 
 @router.patch("/me", response_model=ResidentOut)
-def update_profile(
-    body: ResidentProfileUpdate,
+def update_me(
+    body: ResidentProfilePatch,
     db: Session = Depends(get_db),
     user: ResidentUser = Depends(get_current_resident),
 ):
@@ -111,10 +97,8 @@ def update_profile(
     if body.phone is not None:
         user.phone = body.phone.strip() or None
     if body.new_password:
-        if not body.current_password or not verify_password(
-            body.current_password, user.hashed_password
-        ):
-            raise HTTPException(400, "current_password is required and must match")
+        if not body.current_password or not verify_password(body.current_password, user.hashed_password):
+            raise HTTPException(400, "Current password required / incorrect")
         user.hashed_password = hash_password(body.new_password)
     db.add(user)
     db.commit()
@@ -122,7 +106,7 @@ def update_profile(
     return user
 
 
-@router.get("/me/reports", response_model=List[FaultReportResponse])
+@router.get("/me/reports")
 def my_reports(
     db: Session = Depends(get_db),
     user: ResidentUser = Depends(get_current_resident),
@@ -134,33 +118,32 @@ def my_reports(
         .limit(100)
         .all()
     )
-    return [_row_to_response(r, db) for r in rows]
+    return [_row_to_response(r) for r in rows]
 
 
-@router.post("/me/claim/{report_id}", response_model=FaultReportResponse)
+@router.post("/me/claim/{report_id}")
 def claim_report(
     report_id: int,
     db: Session = Depends(get_db),
     user: ResidentUser = Depends(get_current_resident),
 ):
-    report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
-    if not report:
+    r = db.query(FaultReport).filter(FaultReport.id == report_id).first()
+    if not r:
         raise HTTPException(404, "Report not found")
-    if report.reporter_id and report.reporter_id != user.id:
-        raise HTTPException(403, "Report already belongs to another account")
-    if report.reporter_id == user.id:
-        return _row_to_response(report, db)
-    if report.created_at and report.created_at < datetime.utcnow() - timedelta(minutes=15):
-        raise HTTPException(400, "Report too old to claim — file again while signed in")
-    report.reporter_id = user.id
-    report.updated_at = datetime.utcnow()
-    db.add(report)
+    if r.reporter_id and r.reporter_id != user.id:
+        raise HTTPException(400, "Already linked to another resident")
+    r.reporter_id = user.id
+    db.add(r)
     db.commit()
-    db.refresh(report)
-    return _row_to_response(report, db)
+    db.refresh(r)
+    return _row_to_response(r)
 
 
-@router.get("/me/follows", response_model=List[FollowOut])
+class FollowIn(BaseModel):
+    org_slug: str
+
+
+@router.get("/me/follows")
 def list_follows(
     db: Session = Depends(get_db),
     user: ResidentUser = Depends(get_current_resident),
@@ -172,20 +155,19 @@ def list_follows(
         .all()
     )
     return [
-        FollowOut(organization_id=org.id, slug=org.slug, name=org.name)
-        for _, org in rows
+        {"organization_id": o.id, "slug": o.slug, "name": o.name}
+        for _, o in rows
     ]
 
 
-@router.post("/me/follows", response_model=FollowOut, status_code=201)
-def follow_workspace(
-    body: FollowBody,
+@router.post("/me/follows")
+def follow(
+    body: FollowIn,
     db: Session = Depends(get_db),
     user: ResidentUser = Depends(get_current_resident),
 ):
-    slug = body.org_slug.lower().strip()
-    org = db.query(Organization).filter(Organization.slug == slug).first()
-    if not org:
+    org = db.query(Organization).filter(Organization.slug == body.org_slug.strip().lower()).first()
+    if not org or not getattr(org, "is_active", True):
         raise HTTPException(404, "Workspace not found")
     existing = (
         db.query(WorkspaceFollow)
@@ -196,30 +178,28 @@ def follow_workspace(
         .first()
     )
     if existing:
-        return FollowOut(organization_id=org.id, slug=org.slug, name=org.name)
-    db.add(WorkspaceFollow(resident_id=user.id, organization_id=org.id))
+        return {"organization_id": org.id, "slug": org.slug, "name": org.name}
+    f = WorkspaceFollow(resident_id=user.id, organization_id=org.id)
+    db.add(f)
     db.commit()
-    return FollowOut(organization_id=org.id, slug=org.slug, name=org.name)
+    return {"organization_id": org.id, "slug": org.slug, "name": org.name}
 
 
 @router.delete("/me/follows/{org_slug}", status_code=204)
-def unfollow_workspace(
+def unfollow(
     org_slug: str,
     db: Session = Depends(get_db),
     user: ResidentUser = Depends(get_current_resident),
 ):
-    org = db.query(Organization).filter(Organization.slug == org_slug.lower().strip()).first()
+    org = db.query(Organization).filter(Organization.slug == org_slug.strip().lower()).first()
     if not org:
-        raise HTTPException(404, "Workspace not found")
+        return None
     db.query(WorkspaceFollow).filter(
         WorkspaceFollow.resident_id == user.id,
         WorkspaceFollow.organization_id == org.id,
     ).delete()
     db.commit()
     return None
-
-
-# —— Platform admin: manage residents ——
 
 
 @router.get("/admin", response_model=List[ResidentOut])
@@ -241,6 +221,9 @@ def admin_list_residents(
 
 class ResidentAdminPatch(BaseModel):
     is_active: Optional[bool] = None
+    full_name: Optional[str] = Field(None, max_length=200)
+    phone: Optional[str] = Field(None, max_length=40)
+    email: Optional[EmailStr] = None
 
 
 @router.patch("/admin/{resident_id}", response_model=ResidentOut)
@@ -257,6 +240,20 @@ def admin_patch_resident(
         raise HTTPException(404, "Resident not found")
     if body.is_active is not None:
         user.is_active = body.is_active
+    if body.full_name is not None:
+        user.full_name = body.full_name.strip() or None
+    if body.phone is not None:
+        user.phone = body.phone.strip() or None
+    if body.email is not None:
+        new_email = str(body.email).lower().strip()
+        clash = (
+            db.query(ResidentUser)
+            .filter(ResidentUser.email == new_email, ResidentUser.id != resident_id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(400, "Email already used by another resident")
+        user.email = new_email
     db.add(user)
     db.commit()
     db.refresh(user)
