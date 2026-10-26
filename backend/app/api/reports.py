@@ -56,6 +56,7 @@ def _row_to_response(report: FaultReport, db: Session) -> FaultReportResponse:
         address_label=getattr(report, "address_label", None),
         cluster_id=report.cluster_id or report.id,
         organization_id=report.organization_id,
+        reporter_id=getattr(report, "reporter_id", None),
         severity=report.severity,
         upvote_count=report.upvote_count or 0,
         is_public=bool(report.is_public),
@@ -279,7 +280,6 @@ def edit_report(
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
-    """Edit description, category, place label, severity, status."""
     report = db.query(FaultReport).filter(FaultReport.id == report_id).first()
     if not report:
         raise HTTPException(404, "Report not found")
