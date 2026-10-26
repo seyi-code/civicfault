@@ -60,19 +60,29 @@ export async function fetchWorkspaceReports(
 }
 
 export async function createReport(form: FormData): Promise<FaultReport> {
-  const res = await fetch(`${API_BASE}/api/v1/reports`, { method: "POST", body: form });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(formatApiError(data, `Upload failed (${res.status})`));
+  const headers: Record<string, string> = {};
   if (typeof window !== "undefined") {
     const rt = localStorage.getItem("civicfault_resident_token");
-    if (rt && data?.id) {
+    if (rt) headers.Authorization = `Bearer ${rt}`;
+  }
+  const res = await fetch(`${API_BASE}/api/v1/reports`, {
+    method: "POST",
+    body: form,
+    headers,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(formatApiError(data, `Upload failed (${res.status})`));
+  // Fallback claim if API did not attach reporter_id
+  if (typeof window !== "undefined") {
+    const rt = localStorage.getItem("civicfault_resident_token");
+    if (rt && data?.id && !data?.reporter_id) {
       try {
         await fetch(`${API_BASE}/api/v1/residents/me/claim/${data.id}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${rt}` },
         });
       } catch {
-        /* optional claim */
+        /* claim best-effort */
       }
     }
   }
