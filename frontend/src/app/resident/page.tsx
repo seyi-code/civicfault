@@ -65,36 +65,56 @@ export default function ResidentPage() {
 
   useEffect(() => {
     if (!token) return;
-    Promise.all([
-      fetchResidentMe(token),
-      fetchMyResidentReports(token),
-      fetchFollows(token).catch(() => [] as WorkspaceFollow[]),
-    ])
-      .then(async ([m, list, f]) => {
-        setMe(m);
-        setProfileName(m.full_name || "");
-        setProfilePhone(m.phone || "");
+    let cancelled = false;
+    setError(null);
+
+    (async () => {
+      try {
+        const meRes = await fetchResidentMe(token);
+        if (cancelled) return;
+        setMe(meRes);
+        setProfileName(meRes.full_name || "");
+        setProfilePhone(meRes.phone || "");
+
+        const [list, f] = await Promise.all([
+          fetchMyResidentReports(token).catch(() => [] as FaultReport[]),
+          fetchFollows(token).catch(() => [] as WorkspaceFollow[]),
+        ]);
+        if (cancelled) return;
         setReports(list);
         setFollows(f);
+
         if (f.length) {
           const batches = await Promise.all(f.map((x) => fetchOrgReports(x.slug)));
-          const merged = batches.flat();
+          if (cancelled) return;
           const byId = new Map<number, FaultReport>();
-          merged.forEach((r) => byId.set(r.id, r));
+          batches.flat().forEach((r) => byId.set(r.id, r));
           setFollowingFeed(
             Array.from(byId.values()).sort(
               (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
             )
           );
         } else setFollowingFeed([]);
-      })
-      .catch((e) => {
-        setError(e.message);
-        if (String(e.message).toLowerCase().includes("401") || String(e.message).includes("auth")) {
+      } catch (e: unknown) {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : "Could not load account";
+        if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+          setError(
+            "Cannot reach API — check connection or wait for Railway redeploy, then refresh."
+          );
+          return;
+        }
+        setError(msg);
+        if (/session expired|401|not authenticated|resident account required/i.test(msg)) {
           localStorage.removeItem(RES_TOKEN);
           setToken(null);
         }
-      });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   async function onAuth(e: FormEvent) {
