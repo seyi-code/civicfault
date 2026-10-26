@@ -12,6 +12,10 @@ export { notifyAuthChanged };
 const AUTH_TOKEN_KEY = "civicfault_authority_token";
 const ROLE_KEY = "civicfault_authority_role";
 const RES_TOKEN_KEY = "civicfault_resident_token";
+/** Preferred hat when both sessions exist: resident | staff */
+const CONTEXT_KEY = "civicfault_ui_context";
+
+type UiContext = "resident" | "staff";
 
 function accentFromSlug(slug: string): string {
   let h = 0;
@@ -19,16 +23,20 @@ function accentFromSlug(slug: string): string {
   return `hsl(${h} 70% 42%)`;
 }
 
-/** Staff / workspace chrome — Authority, Admin */
 function isStaffRoute(pathname: string | null): boolean {
   if (!pathname) return false;
   return pathname.startsWith("/authority") || pathname.startsWith("/admin");
 }
 
-/** Resident identity surface — never show workspace name here */
 function isResidentRoute(pathname: string | null): boolean {
   if (!pathname) return false;
   return pathname.startsWith("/resident");
+}
+
+function readContext(): UiContext {
+  if (typeof window === "undefined") return "staff";
+  const v = localStorage.getItem(CONTEXT_KEY);
+  return v === "resident" ? "resident" : "staff";
 }
 
 export function SiteHeader() {
@@ -39,6 +47,7 @@ export function SiteHeader() {
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [hasResidentSession, setHasResidentSession] = useState(false);
   const [hasStaffSession, setHasStaffSession] = useState(false);
+  const [uiContext, setUiContext] = useState<UiContext>("staff");
 
   const refresh = useCallback((full = true) => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
@@ -47,6 +56,7 @@ export function SiteHeader() {
 
     setHasResidentSession(!!resToken);
     setHasStaffSession(!!token);
+    setUiContext(readContext());
 
     if (!token) {
       setOrgName(null);
@@ -104,14 +114,47 @@ export function SiteHeader() {
     refresh(true);
   }, [pathname, refresh]);
 
-  // Route-aware subtitle: never paint workspace name on resident pages
-  const showWorkspaceBrand = !!orgName && !isResidentRoute(pathname);
-  // On Mine, label resident context when signed in as resident
-  const showResidentBrand = isResidentRoute(pathname) && hasResidentSession;
-  // Staff accent only on staff routes; neutral amber elsewhere (incl. Mine)
-  const logoColor = isStaffRoute(pathname) && orgName ? accent : "#f59e0b";
-  const dualSession =
-    hasResidentSession && hasStaffSession && isResidentRoute(pathname);
+  function setContext(next: UiContext) {
+    localStorage.setItem(CONTEXT_KEY, next);
+    setUiContext(next);
+    notifyAuthChanged();
+  }
+
+  const both = hasResidentSession && hasStaffSession;
+
+  // Route wins; elsewhere prefer Switch context hat
+  let showWorkspaceBrand = false;
+  let showResidentBrand = false;
+  let logoColor = "#f59e0b";
+
+  if (isResidentRoute(pathname)) {
+    showResidentBrand = hasResidentSession;
+    showWorkspaceBrand = false;
+    logoColor = "#f59e0b";
+  } else if (isStaffRoute(pathname)) {
+    showWorkspaceBrand = !!orgName;
+    showResidentBrand = false;
+    logoColor = orgName ? accent : "#f59e0b";
+  } else {
+    // Public / dashboard / home
+    if (both) {
+      if (uiContext === "staff" && orgName) {
+        showWorkspaceBrand = true;
+        logoColor = accent;
+      } else if (uiContext === "resident" && hasResidentSession) {
+        showResidentBrand = true;
+        logoColor = "#f59e0b";
+      } else if (orgName) {
+        showWorkspaceBrand = true;
+        logoColor = accent;
+      }
+    } else if (hasStaffSession && orgName) {
+      showWorkspaceBrand = true;
+      logoColor = accent;
+    } else if (hasResidentSession) {
+      showResidentBrand = true;
+    }
+  }
 
   return (
     <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-40 shadow-sm">
@@ -148,7 +191,7 @@ export function SiteHeader() {
 
         <nav className="flex items-center gap-2 sm:gap-5 text-xs sm:text-base font-medium text-slate-600 shrink-0">
           <Link href="/dashboard" className="hover:text-slate-900 transition whitespace-nowrap">
-            <span className="hidden xs:inline sm:inline">Dashboard</span>
+            <span className="hidden sm:inline">Dashboard</span>
             <span className="sm:hidden">Dash</span>
           </Link>
           <Link href="/resident" className="hover:text-slate-900 transition whitespace-nowrap">
@@ -168,9 +211,37 @@ export function SiteHeader() {
           )}
         </nav>
       </div>
-      {dualSession && (
-        <div className="max-w-6xl mx-auto mt-1.5 text-[10px] sm:text-xs text-slate-400">
-          Staff session also active — open Authority for workspace tools. Branding stays Resident here.
+
+      {both && (
+        <div className="max-w-6xl mx-auto mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] sm:text-xs text-slate-400">Acting as</span>
+          <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
+            <button
+              type="button"
+              onClick={() => setContext("resident")}
+              className={`text-[10px] sm:text-xs px-2.5 py-1 rounded-md font-medium transition ${
+                uiContext === "resident"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Resident
+            </button>
+            <button
+              type="button"
+              onClick={() => setContext("staff")}
+              className={`text-[10px] sm:text-xs px-2.5 py-1 rounded-md font-medium transition ${
+                uiContext === "staff"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Staff{orgName ? ` · ${orgName}` : ""}
+            </button>
+          </div>
+          <span className="text-[10px] text-slate-400 hidden sm:inline">
+            Routes still enforce roles; this only changes branding on public pages.
+          </span>
         </div>
       )}
     </header>
