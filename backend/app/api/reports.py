@@ -25,7 +25,7 @@ from app.services.clustering import assign_cluster
 from app.services.storage import save_upload
 from app.services.sla import hours_open, is_overdue
 from app.services.geocode import reverse_geocode
-from app.core.security import get_current_authority
+from app.core.security import get_current_authority, get_current_resident_optional
 from app.core.config import settings
 from app.models.user import AuthorityUser
 
@@ -99,6 +99,7 @@ async def create_report(
     organization_id: Annotated[Optional[int], Form()] = None,
     org_slug: Annotated[Optional[str], Form()] = None,
     db: Session = Depends(get_db),
+    resident=Depends(get_current_resident_optional),
 ):
     try:
         image_url, image_bytes = await save_upload(file)
@@ -131,6 +132,7 @@ async def create_report(
             address_label=address_label,
             cluster_id=cluster_id,
             organization_id=org_id,
+            reporter_id=resident.id if resident is not None else None,
             upvote_count=0,
             is_public=is_public,
             is_pinned=False,
@@ -233,11 +235,16 @@ def list_workspace_reports(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     q: Optional[str] = Query(None),
+    org_id: Optional[int] = Query(None, description="Platform admin only: view-as workspace"),
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
     query = db.query(FaultReport)
-    if user.organization_id:
+    if org_id is not None:
+        if user.role != "admin":
+            raise HTTPException(403, "Only platform admin can view-as a workspace")
+        query = query.filter(FaultReport.organization_id == org_id)
+    elif user.organization_id:
         query = query.filter(FaultReport.organization_id == user.organization_id)
     else:
         query = query.filter(FaultReport.is_public == True)  # noqa: E712
