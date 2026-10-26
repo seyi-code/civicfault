@@ -21,6 +21,11 @@ export function listDrafts(): OfflineDraft[] {
   }
 }
 
+/** Alias used by report form */
+export function listQueued(): OfflineDraft[] {
+  return listDrafts();
+}
+
 export function saveDraft(draft: Omit<OfflineDraft, "id" | "created_at">): OfflineDraft {
   const item: OfflineDraft = {
     ...draft,
@@ -32,9 +37,19 @@ export function saveDraft(draft: Omit<OfflineDraft, "id" | "created_at">): Offli
   return item;
 }
 
+/** Alias used by report form when offline */
+export function enqueueMeta(draft: Omit<OfflineDraft, "id" | "created_at">): OfflineDraft {
+  return saveDraft(draft);
+}
+
 export function removeDraft(id: string) {
   const next = listDrafts().filter((d) => d.id !== id);
   localStorage.setItem(KEY, JSON.stringify(next));
+}
+
+export function clearDrafts() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(KEY);
 }
 
 export function isOnline(): boolean {
