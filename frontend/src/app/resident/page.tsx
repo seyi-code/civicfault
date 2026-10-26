@@ -78,7 +78,7 @@ export default function ResidentPage() {
           const byId = new Map<number, FaultReport>();
           merged.forEach((r) => byId.set(r.id, r));
           setFollowingFeed(
-            [...byId.values()].sort(
+            Array.from(byId.values()).sort(
               (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
             )
           );
@@ -151,7 +151,7 @@ export default function ResidentPage() {
       setFollowingFeed((prev) => {
         const map = new Map(prev.map((r) => [r.id, r]));
         items.forEach((r) => map.set(r.id, r));
-        return [...map.values()].sort(
+        return Array.from(map.values()).sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
       });
