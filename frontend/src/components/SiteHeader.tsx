@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { fetchMyOrg, fetchMe } from "@/lib/api";
 
 const TOKEN_KEY = "civicfault_authority_token";
+const ROLE_KEY = "civicfault_authority_role";
+export const AUTH_EVENT = "civicfault-auth-changed";
+
+/** Call after login / logout so the sticky header refreshes without a full reload. */
+export function notifyAuthChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(AUTH_EVENT));
+}
 
 function accentFromSlug(slug: string): string {
   let h = 0;
@@ -14,13 +23,17 @@ function accentFromSlug(slug: string): string {
 }
 
 export function SiteHeader() {
+  const pathname = usePathname();
   const [orgName, setOrgName] = useState<string | null>(null);
   const [orgSlug, setOrgSlug] = useState<string | null>(null);
   const [accent, setAccent] = useState("#f59e0b");
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     const token = localStorage.getItem(TOKEN_KEY);
+    const cachedRole = localStorage.getItem(ROLE_KEY);
+
+    // Instant UI from cached role (set at login) — no wait for network
     if (!token) {
       setOrgName(null);
       setOrgSlug(null);
@@ -29,9 +42,19 @@ export function SiteHeader() {
       document.documentElement.style.setProperty("--cf-accent", "#f59e0b");
       return;
     }
+
+    setIsPlatformAdmin(cachedRole === "admin");
+
     fetchMe(token)
-      .then((me) => setIsPlatformAdmin(me.role === "admin"))
-      .catch(() => setIsPlatformAdmin(false));
+      .then((me) => {
+        const isAdmin = me.role === "admin";
+        setIsPlatformAdmin(isAdmin);
+        if (me.role) localStorage.setItem(ROLE_KEY, me.role);
+      })
+      .catch(() => {
+        // Keep cached role if offline; only clear on explicit logout (no token)
+      });
+
     fetchMyOrg(token)
       .then((o) => {
         if (o) {
@@ -49,6 +72,23 @@ export function SiteHeader() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refresh();
+    const onAuth = () => refresh();
+    window.addEventListener(AUTH_EVENT, onAuth);
+    // Cross-tab login/logout
+    window.addEventListener("storage", onAuth);
+    return () => {
+      window.removeEventListener(AUTH_EVENT, onAuth);
+      window.removeEventListener("storage", onAuth);
+    };
+  }, [refresh]);
+
+  // Re-check when navigating (e.g. Authority → Dashboard after login)
+  useEffect(() => {
+    refresh();
+  }, [pathname, refresh]);
 
   return (
     <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 sm:py-4 sticky top-0 z-40 shadow-sm">
