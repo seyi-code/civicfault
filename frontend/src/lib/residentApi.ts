@@ -1,11 +1,10 @@
-import type { FaultReport } from "@/types";
 import { API_BASE, formatApiError } from "@/lib/api";
+import type { FaultReport } from "@/types";
 
 export async function registerResident(body: {
   email: string;
   password: string;
   full_name?: string;
-  phone?: string;
 }) {
   const res = await fetch(`${API_BASE}/api/v1/residents/register`, {
     method: "POST",
@@ -25,21 +24,15 @@ export async function loginResident(email: string, password: string) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(formatApiError(data, "Login failed"));
-  return data as { access_token: string; role: string };
+  return data as { access_token: string };
 }
 
 export async function fetchResidentMe(token: string) {
   const res = await fetch(`${API_BASE}/api/v1/residents/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error("Could not load resident profile");
-  return res.json() as Promise<{
-    id: number;
-    email: string;
-    full_name?: string;
-    phone?: string;
-    is_active?: boolean;
-  }>;
+  if (!res.ok) throw new Error("Session expired");
+  return res.json() as Promise<{ email: string; full_name?: string; phone?: string }>;
 }
 
 export async function updateResidentProfile(
@@ -61,18 +54,12 @@ export async function updateResidentProfile(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(formatApiError(data, "Profile update failed"));
-  return data as {
-    id: number;
-    email: string;
-    full_name?: string;
-    phone?: string;
-  };
+  return data;
 }
 
 export async function fetchMyResidentReports(token: string): Promise<FaultReport[]> {
   const res = await fetch(`${API_BASE}/api/v1/residents/me/reports`, {
     headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
   });
   if (!res.ok) throw new Error("Could not load your reports");
   return res.json();
@@ -152,5 +139,23 @@ export async function adminSetResidentActive(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(formatApiError(data, "Update failed"));
+  return data;
+}
+
+export async function adminUpdateResident(
+  token: string,
+  residentId: number,
+  body: { full_name?: string; phone?: string; email?: string; is_active?: boolean }
+) {
+  const res = await fetch(`${API_BASE}/api/v1/residents/admin/${residentId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(formatApiError(data, "Resident update failed"));
   return data;
 }

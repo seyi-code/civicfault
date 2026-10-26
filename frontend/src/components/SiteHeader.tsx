@@ -38,7 +38,6 @@ export function SiteHeader() {
       return;
     }
 
-    // Instant from cache (written at login) — Admin appears without waiting for API
     setIsPlatformAdmin(cachedRole === "admin");
 
     if (!full) return;
@@ -70,14 +69,10 @@ export function SiteHeader() {
 
   useEffect(() => {
     refresh(true);
-
     const onAuth = () => refresh(true);
     window.addEventListener(AUTH_EVENT, onAuth);
     window.addEventListener("storage", onAuth);
-
-    // Same-tab login on /authority does not remount the header — poll role cache briefly
     const poll = window.setInterval(() => refresh(false), 800);
-
     return () => {
       window.removeEventListener(AUTH_EVENT, onAuth);
       window.removeEventListener("storage", onAuth);
@@ -90,21 +85,22 @@ export function SiteHeader() {
   }, [pathname, refresh]);
 
   return (
-    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 sm:py-4 sticky top-0 z-40 shadow-sm">
-      <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
-        <Link href="/" className="flex items-center gap-2.5 min-w-0 shrink">
+    <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-40 shadow-sm">
+      <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 sm:gap-3 min-w-0">
+        <Link href="/" className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 shrink overflow-hidden">
           <AlertTriangle
-            className="w-8 h-8 sm:w-9 sm:h-9 shrink-0"
+            className="w-7 h-7 sm:w-9 sm:h-9 shrink-0"
             style={{ color: accent }}
             strokeWidth={2.25}
           />
-          <div className="min-w-0">
-            <div className="font-bold text-xl sm:text-2xl tracking-tight leading-none truncate">
-              CivicFault
+          <div className="min-w-0 overflow-hidden">
+            <div className="font-bold text-base sm:text-2xl tracking-tight leading-none truncate">
+              <span className="sm:hidden">CivicFault</span>
+              <span className="hidden sm:inline">CivicFault</span>
             </div>
             {orgName && (
               <div
-                className="text-xs font-medium truncate max-w-[8rem] sm:max-w-[14rem] mt-0.5 leading-tight"
+                className="text-[10px] sm:text-xs font-medium truncate max-w-[5.5rem] sm:max-w-[14rem] mt-0.5 leading-tight"
                 style={{ color: accent }}
                 title={orgSlug ? `Workspace · ${orgSlug}` : orgName}
               >
@@ -114,19 +110,23 @@ export function SiteHeader() {
           </div>
         </Link>
 
-        <nav className="flex items-center gap-3 sm:gap-6 text-sm sm:text-base font-medium text-slate-600 shrink-0">
+        <nav className="flex items-center gap-2 sm:gap-5 text-xs sm:text-base font-medium text-slate-600 shrink-0">
           <Link href="/dashboard" className="hover:text-slate-900 transition whitespace-nowrap">
-            Dashboard
+            <span className="hidden xs:inline sm:inline">Dashboard</span>
+            <span className="sm:hidden">Dash</span>
           </Link>
           <Link href="/resident" className="hover:text-slate-900 transition whitespace-nowrap">
-            <span className="sm:hidden">Mine</span>
-            <span className="hidden sm:inline">My reports</span>
+            Mine
           </Link>
           <Link href="/authority" className="hover:text-slate-900 transition whitespace-nowrap">
-            Authority
+            <span className="sm:hidden">Auth</span>
+            <span className="hidden sm:inline">Authority</span>
           </Link>
           {isPlatformAdmin && (
-            <Link href="/admin" className="hover:text-violet-800 text-violet-700 transition whitespace-nowrap">
+            <Link
+              href="/admin"
+              className="hover:text-violet-800 text-violet-700 transition whitespace-nowrap font-semibold"
+            >
               Admin
             </Link>
           )}
