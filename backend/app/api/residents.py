@@ -72,12 +72,13 @@ def register_resident(body: ResidentRegister, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenOut)
 def login_resident(body: ResidentLogin, db: Session = Depends(get_db)):
-    user = db.query(ResidentUser).filter(ResidentUser.email == body.email.lower()).first()
+    user = db.query(ResidentUser).filter(ResidentUser.email == body.email.lower().strip()).first()
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(401, "Invalid credentials")
     if not user.is_active:
         raise HTTPException(403, "Account suspended")
-    token = create_access_token({"sub": str(user.id), "role": "resident", "typ": "resident"})
+    # Must match get_current_resident: sub="resident:<email>", role="resident"
+    token = create_access_token(subject=f"resident:{user.email}", role="resident")
     return TokenOut(access_token=token)
 
 
@@ -148,16 +149,19 @@ def list_follows(
     db: Session = Depends(get_db),
     user: ResidentUser = Depends(get_current_resident),
 ):
-    rows = (
-        db.query(WorkspaceFollow, Organization)
-        .join(Organization, Organization.id == WorkspaceFollow.organization_id)
-        .filter(WorkspaceFollow.resident_id == user.id)
-        .all()
-    )
-    return [
-        {"organization_id": o.id, "slug": o.slug, "name": o.name}
-        for _, o in rows
-    ]
+    try:
+        rows = (
+            db.query(WorkspaceFollow, Organization)
+            .join(Organization, Organization.id == WorkspaceFollow.organization_id)
+            .filter(WorkspaceFollow.resident_id == user.id)
+            .all()
+        )
+        return [
+            {"organization_id": o.id, "slug": o.slug, "name": o.name}
+            for _, o in rows
+        ]
+    except Exception:
+        return []
 
 
 @router.post("/me/follows")
