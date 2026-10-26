@@ -5,16 +5,12 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { fetchMyOrg, fetchMe } from "@/lib/api";
+import { AUTH_EVENT, notifyAuthChanged } from "@/lib/authEvents";
+
+export { notifyAuthChanged };
 
 const TOKEN_KEY = "civicfault_authority_token";
 const ROLE_KEY = "civicfault_authority_role";
-export const AUTH_EVENT = "civicfault-auth-changed";
-
-/** Call after login / logout so the sticky header refreshes without a full reload. */
-export function notifyAuthChanged() {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(AUTH_EVENT));
-}
 
 function accentFromSlug(slug: string): string {
   let h = 0;
@@ -29,11 +25,10 @@ export function SiteHeader() {
   const [accent, setAccent] = useState("#f59e0b");
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback((full = true) => {
     const token = localStorage.getItem(TOKEN_KEY);
     const cachedRole = localStorage.getItem(ROLE_KEY);
 
-    // Instant UI from cached role (set at login) — no wait for network
     if (!token) {
       setOrgName(null);
       setOrgSlug(null);
@@ -43,17 +38,17 @@ export function SiteHeader() {
       return;
     }
 
+    // Instant from cache (written at login) — Admin appears without waiting for API
     setIsPlatformAdmin(cachedRole === "admin");
+
+    if (!full) return;
 
     fetchMe(token)
       .then((me) => {
-        const isAdmin = me.role === "admin";
-        setIsPlatformAdmin(isAdmin);
+        setIsPlatformAdmin(me.role === "admin");
         if (me.role) localStorage.setItem(ROLE_KEY, me.role);
       })
-      .catch(() => {
-        // Keep cached role if offline; only clear on explicit logout (no token)
-      });
+      .catch(() => {});
 
     fetchMyOrg(token)
       .then((o) => {
@@ -74,20 +69,24 @@ export function SiteHeader() {
   }, []);
 
   useEffect(() => {
-    refresh();
-    const onAuth = () => refresh();
+    refresh(true);
+
+    const onAuth = () => refresh(true);
     window.addEventListener(AUTH_EVENT, onAuth);
-    // Cross-tab login/logout
     window.addEventListener("storage", onAuth);
+
+    // Same-tab login on /authority does not remount the header — poll role cache briefly
+    const poll = window.setInterval(() => refresh(false), 800);
+
     return () => {
       window.removeEventListener(AUTH_EVENT, onAuth);
       window.removeEventListener("storage", onAuth);
+      window.clearInterval(poll);
     };
   }, [refresh]);
 
-  // Re-check when navigating (e.g. Authority → Dashboard after login)
   useEffect(() => {
-    refresh();
+    refresh(true);
   }, [pathname, refresh]);
 
   return (
