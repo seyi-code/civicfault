@@ -17,6 +17,8 @@ export interface FaultReport {
   address_label?: string | null;
   cluster_id: number | null;
   organization_id?: number | null;
+  /** Resident account that filed the report (if signed in) */
+  reporter_id?: number | null;
   severity: string | null;
   upvote_count: number;
   is_public: boolean;
