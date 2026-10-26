@@ -147,7 +147,11 @@ export async function registerAuthority(body: {
   return data;
 }
 
-export async function updateReportStatus(reportId: number, status: string, token: string) {
+export async function updateReportStatus(
+  reportId: number,
+  status: string,
+  token: string
+): Promise<FaultReport> {
   const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/status`, {
     method: "PATCH",
     headers: {
@@ -161,17 +165,22 @@ export async function updateReportStatus(reportId: number, status: string, token
   return data;
 }
 
-export async function pinReport(reportId: number, token: string, pinned = true) {
+/** Call sites use pinReport(id, pinned, token) */
+export async function pinReport(
+  reportId: number,
+  isPinned: boolean,
+  token: string
+): Promise<FaultReport> {
   const res = await fetch(`${API_BASE}/api/v1/reports/${reportId}/pin`, {
-    method: "POST",
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ pinned }),
+    body: JSON.stringify({ is_pinned: isPinned }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(formatApiError(data, "Pin failed"));
+  if (!res.ok) throw new Error(formatApiError(data, "Pin update failed"));
   return data;
 }
 
@@ -247,15 +256,26 @@ export async function fetchMyOrg(token: string): Promise<Organization | null> {
 
 export async function createOrg(
   token: string,
-  body: { name: string; slug: string; notify_phone?: string }
+  body: {
+    name: string;
+    slug: string;
+    visibility?: string;
+    sla_hours?: number;
+    notify_phone?: string;
+  }
 ) {
+  const slug = body.slug
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
   const res = await fetch(`${API_BASE}/api/v1/orgs`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, slug }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(formatApiError(data, "Create workspace failed"));
@@ -298,7 +318,12 @@ export async function fetchMe(token: string) {
 
 export async function updateProfile(
   token: string,
-  body: { full_name?: string; organization?: string; password?: string; current_password?: string }
+  body: {
+    full_name?: string;
+    organization?: string;
+    current_password?: string;
+    new_password?: string;
+  }
 ) {
   const res = await fetch(`${API_BASE}/api/v1/auth/me`, {
     method: "PATCH",
