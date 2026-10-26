@@ -1,17 +1,18 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_authority, hash_password, verify_password
+from app.core.security import get_current_authority, hash_password
 from app.db.session import get_db
 from app.models.organization import Organization
 from app.models.user import AuthorityUser
 from app.models.fault import FaultReport
 from app.models.invite import OrgInvite
+from app.models.resident import ResidentUser, WorkspaceFollow
 from app.services.notify import send_whatsapp_or_sms
 from app.services.sla import is_overdue, hours_open
 
@@ -62,7 +63,7 @@ class OrgOut(BaseModel):
 
 class InviteCreate(BaseModel):
     email: EmailStr
-    role: str = Field("authority", pattern=r"^(authority|manager|admin)$")
+    role: str = Field("authority", pattern=r"^(authority|manager)$")
 
 
 class InviteOut(BaseModel):
@@ -83,7 +84,8 @@ class InviteAccept(BaseModel):
 class PlanOverride(BaseModel):
     plan: str = Field(..., pattern=r"^(free|authority|enterprise)$")
     days: int = Field(30, ge=1, le=3650)
-    user_email: Optional[EmailStr] = None  # if set, upgrade that user; else self/org
+    user_email: Optional[EmailStr] = None
+    organization_id: Optional[int] = None
 
 
 @router.post("", response_model=OrgOut, status_code=201)
@@ -92,6 +94,12 @@ def create_org(
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
+    """Create workspace.
+
+    - Org staff (authority/manager): attached as org *manager* for that workspace.
+    - Platform admin (role=admin): creates the org but is NOT attached — stays global.
+      Never promote anyone to platform admin here.
+    """
     if db.query(Organization).filter(Organization.slug == body.slug).first():
         raise HTTPException(400, "Slug already taken")
     if body.custom_domain and db.query(Organization).filter(
@@ -108,15 +116,20 @@ def create_org(
         brand_name=body.brand_name or body.name,
         primary_color=body.primary_color or "#f59e0b",
         custom_domain=body.custom_domain,
-        plan=user.plan if user.plan != "free" else "free",
+        plan="free",
     )
     db.add(org)
     db.flush()
-    user.organization_id = org.id
-    user.organization = org.name
-    if user.role != "admin":
-        user.role = "admin"
-    db.add(user)
+
+    is_platform_admin = user.role == "admin"
+    if not is_platform_admin:
+        # Org operator owns this workspace as manager (NOT platform admin)
+        user.organization_id = org.id
+        user.organization = org.name
+        user.role = "manager"
+        db.add(user)
+    # Platform admin: leave organization_id untouched so navbar/isolation stay global
+
     db.commit()
     db.refresh(org)
     return org
@@ -192,10 +205,11 @@ def update_my_org(
 
 
 def _reports_for_user(db: Session, user: AuthorityUser):
-    """Same scope as workspace list: org reports if any, else all public."""
     if user.organization_id:
         return db.query(FaultReport).filter(FaultReport.organization_id == user.organization_id).all()
-    return db.query(FaultReport).filter(FaultReport.is_public == True).all()  # noqa: E712
+    if user.role == "admin":
+        return db.query(FaultReport).filter(FaultReport.is_public == True).all()  # noqa: E712
+    return []
 
 
 @router.get("/me/stats")
@@ -225,16 +239,37 @@ def org_stats(
     }
 
 
+@router.get("/me/followers")
+def list_followers(
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
+    """Residents following this workspace."""
+    if not user.organization_id:
+        raise HTTPException(400, "No workspace")
+    rows = (
+        db.query(WorkspaceFollow, ResidentUser)
+        .join(ResidentUser, ResidentUser.id == WorkspaceFollow.resident_id)
+        .filter(WorkspaceFollow.organization_id == user.organization_id)
+        .all()
+    )
+    return [
+        {
+            "resident_id": r.id,
+            "email": r.email,
+            "full_name": r.full_name,
+            "followed_at": f.created_at.isoformat() if f.created_at else None,
+        }
+        for f, r in rows
+    ]
+
+
 @router.post("/admin/set-plan")
 def admin_set_plan(
     body: PlanOverride,
     db: Session = Depends(get_db),
     user: AuthorityUser = Depends(get_current_authority),
 ):
-    """Platform admin (role=admin without needing payment) can grant plans.
-
-    First registered user is admin. Use this for pilots, comps, and support.
-    """
     if user.role != "admin":
         raise HTTPException(403, "Platform admin only")
 
@@ -247,8 +282,10 @@ def admin_set_plan(
     target.plan = body.plan
     target.plan_expires_at = datetime.utcnow() + timedelta(days=body.days)
     db.add(target)
-    if target.organization_id:
-        org = db.query(Organization).filter(Organization.id == target.organization_id).first()
+
+    org_id = body.organization_id or target.organization_id
+    if org_id:
+        org = db.query(Organization).filter(Organization.id == org_id).first()
         if org:
             org.plan = body.plan
             org.plan_expires_at = target.plan_expires_at
@@ -259,6 +296,70 @@ def admin_set_plan(
         "email": target.email,
         "plan": target.plan,
         "plan_expires_at": target.plan_expires_at,
+    }
+
+
+@router.get("/admin/list")
+def admin_list_orgs(
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
+    if user.role != "admin":
+        raise HTTPException(403, "Platform admin only")
+    orgs = db.query(Organization).order_by(Organization.created_at.desc()).limit(200).all()
+    return [
+        {
+            "id": o.id,
+            "name": o.name,
+            "slug": o.slug,
+            "plan": o.plan,
+            "sla_hours": o.sla_hours,
+            "is_active": getattr(o, "is_active", True),
+        }
+        for o in orgs
+    ]
+
+
+class StaffRoleFix(BaseModel):
+    email: EmailStr
+    role: str = Field(..., pattern=r"^(authority|manager|admin)$")
+    clear_organization: bool = False
+    organization_id: Optional[int] = None
+
+
+@router.post("/admin/fix-user")
+def admin_fix_user(
+    body: StaffRoleFix,
+    db: Session = Depends(get_db),
+    user: AuthorityUser = Depends(get_current_authority),
+):
+    """Repair mis-assigned roles (e.g. org creator wrongly set to platform admin)."""
+    if user.role != "admin":
+        raise HTTPException(403, "Platform admin only")
+    target = db.query(AuthorityUser).filter(AuthorityUser.email == body.email.lower()).first()
+    if not target:
+        raise HTTPException(404, "User not found")
+    # Never demote the only platform admin accidentally without another admin
+    if target.role == "admin" and body.role != "admin":
+        other_admins = (
+            db.query(AuthorityUser)
+            .filter(AuthorityUser.role == "admin", AuthorityUser.id != target.id)
+            .count()
+        )
+        if other_admins == 0 and target.email == user.email:
+            raise HTTPException(400, "Cannot demote the only platform admin (yourself)")
+    target.role = body.role
+    if body.clear_organization:
+        target.organization_id = None
+    elif body.organization_id is not None:
+        target.organization_id = body.organization_id
+    db.add(target)
+    db.commit()
+    return {
+        "ok": True,
+        "email": target.email,
+        "role": target.role,
+        "organization_id": target.organization_id,
     }
 
 
@@ -327,7 +428,7 @@ def accept_invite(body: InviteAccept, db: Session = Depends(get_db)):
     user = db.query(AuthorityUser).filter(AuthorityUser.email == invite.email).first()
     if user:
         user.organization_id = invite.organization_id
-        user.role = invite.role
+        user.role = invite.role if invite.role != "admin" else "manager"
         user.hashed_password = hash_password(body.password)
         if body.full_name:
             user.full_name = body.full_name
@@ -340,7 +441,7 @@ def accept_invite(body: InviteAccept, db: Session = Depends(get_db)):
             full_name=body.full_name,
             organization=org.name if org else None,
             organization_id=invite.organization_id,
-            role=invite.role,
+            role=invite.role if invite.role != "admin" else "manager",
             plan="free",
         )
         db.add(user)
@@ -348,7 +449,7 @@ def accept_invite(body: InviteAccept, db: Session = Depends(get_db)):
     invite.accepted = True
     db.add(invite)
     db.commit()
-    return {"ok": True, "email": invite.email, "organization_id": invite.organization_id, "role": invite.role}
+    return {"ok": True, "email": invite.email, "organization_id": invite.organization_id, "role": user.role}
 
 
 @router.post("/me/digest")
@@ -369,14 +470,6 @@ async def send_digest_now(
         .limit(20)
         .all()
     )
-    if not recent:
-        recent = (
-            db.query(FaultReport)
-            .filter(FaultReport.is_public == True)  # noqa: E712
-            .order_by(FaultReport.created_at.desc())
-            .limit(5)
-            .all()
-        )
 
     lines = [f"{org.brand_name or org.name} digest", f"{len(recent)} report(s):"]
     for r in recent[:10]:
@@ -388,5 +481,5 @@ async def send_digest_now(
     try:
         result = await send_whatsapp_or_sms(org.notify_phone, msg)
     except Exception as exc:
-        raise HTTPException(502, str(exc)) from exp if False else exc
+        raise HTTPException(502, str(exc)) from exc
     return {"sent": True, "to": org.notify_phone, "preview": msg, "result": result}
