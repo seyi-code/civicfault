@@ -9,13 +9,26 @@ import { AUTH_EVENT, notifyAuthChanged } from "@/lib/authEvents";
 
 export { notifyAuthChanged };
 
-const TOKEN_KEY = "civicfault_authority_token";
+const AUTH_TOKEN_KEY = "civicfault_authority_token";
 const ROLE_KEY = "civicfault_authority_role";
+const RES_TOKEN_KEY = "civicfault_resident_token";
 
 function accentFromSlug(slug: string): string {
   let h = 0;
   for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) % 360;
   return `hsl(${h} 70% 42%)`;
+}
+
+/** Staff / workspace chrome — Authority, Admin */
+function isStaffRoute(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return pathname.startsWith("/authority") || pathname.startsWith("/admin");
+}
+
+/** Resident identity surface — never show workspace name here */
+function isResidentRoute(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return pathname.startsWith("/resident");
 }
 
 export function SiteHeader() {
@@ -24,10 +37,16 @@ export function SiteHeader() {
   const [orgSlug, setOrgSlug] = useState<string | null>(null);
   const [accent, setAccent] = useState("#f59e0b");
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [hasResidentSession, setHasResidentSession] = useState(false);
+  const [hasStaffSession, setHasStaffSession] = useState(false);
 
   const refresh = useCallback((full = true) => {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    const resToken = localStorage.getItem(RES_TOKEN_KEY);
     const cachedRole = localStorage.getItem(ROLE_KEY);
+
+    setHasResidentSession(!!resToken);
+    setHasStaffSession(!!token);
 
     if (!token) {
       setOrgName(null);
@@ -54,7 +73,8 @@ export function SiteHeader() {
         if (o) {
           setOrgName(o.name);
           setOrgSlug(o.slug);
-          const color = o.primary_color || accentFromSlug(o.slug);
+          const color =
+            (o as { primary_color?: string }).primary_color || accentFromSlug(o.slug);
           setAccent(color);
           document.documentElement.style.setProperty("--cf-accent", color);
         } else {
@@ -84,27 +104,43 @@ export function SiteHeader() {
     refresh(true);
   }, [pathname, refresh]);
 
+  // Route-aware subtitle: never paint workspace name on resident pages
+  const showWorkspaceBrand = !!orgName && !isResidentRoute(pathname);
+  // On Mine, label resident context when signed in as resident
+  const showResidentBrand = isResidentRoute(pathname) && hasResidentSession;
+  // Staff accent only on staff routes; neutral amber elsewhere (incl. Mine)
+  const logoColor = isStaffRoute(pathname) && orgName ? accent : "#f59e0b";
+  const dualSession =
+    hasResidentSession && hasStaffSession && isResidentRoute(pathname);
+
   return (
     <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 sm:py-4 sticky top-0 z-40 shadow-sm">
       <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 sm:gap-3 min-w-0">
         <Link href="/" className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 shrink overflow-hidden">
           <AlertTriangle
             className="w-7 h-7 sm:w-9 sm:h-9 shrink-0"
-            style={{ color: accent }}
+            style={{ color: logoColor }}
             strokeWidth={2.25}
           />
           <div className="min-w-0 overflow-hidden">
             <div className="font-bold text-base sm:text-2xl tracking-tight leading-none truncate">
-              <span className="sm:hidden">CivicFault</span>
-              <span className="hidden sm:inline">CivicFault</span>
+              CivicFault
             </div>
-            {orgName && (
+            {showWorkspaceBrand && (
               <div
                 className="text-[10px] sm:text-xs font-medium truncate max-w-[5.5rem] sm:max-w-[14rem] mt-0.5 leading-tight"
                 style={{ color: accent }}
-                title={orgSlug ? `Workspace · ${orgSlug}` : orgName}
+                title={orgSlug ? `Workspace · ${orgSlug}` : orgName || undefined}
               >
                 {orgName}
+              </div>
+            )}
+            {showResidentBrand && (
+              <div
+                className="text-[10px] sm:text-xs font-medium truncate max-w-[5.5rem] sm:max-w-[14rem] mt-0.5 leading-tight text-emerald-700"
+                title="Resident account"
+              >
+                Resident
               </div>
             )}
           </div>
@@ -132,6 +168,11 @@ export function SiteHeader() {
           )}
         </nav>
       </div>
+      {dualSession && (
+        <div className="max-w-6xl mx-auto mt-1.5 text-[10px] sm:text-xs text-slate-400">
+          Staff session also active — open Authority for workspace tools. Branding stays Resident here.
+        </div>
+      )}
     </header>
   );
 }
