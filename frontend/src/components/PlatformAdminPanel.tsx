@@ -6,7 +6,7 @@ import {
   adminListResidents,
   adminSetResidentActive,
 } from "@/lib/residentApi";
-import { API_BASE, formatApiError } from "@/lib/api";
+import { API_BASE, formatApiError, fetchMe } from "@/lib/api";
 
 type OrgRow = {
   id: number;
@@ -35,19 +35,22 @@ export function PlatformAdminPanel({ token }: { token: string }) {
   const [planEmail, setPlanEmail] = useState("");
   const [plan, setPlan] = useState("authority");
   const [planDays, setPlanDays] = useState(30);
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
 
   async function load() {
     setError(null);
     try {
-      const [oRes, rList] = await Promise.all([
+      const [oRes, rList, me] = await Promise.all([
         fetch(`${API_BASE}/api/v1/orgs/admin/list`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         adminListResidents(token, q || undefined),
+        fetchMe(token),
       ]);
       if (!oRes.ok) throw new Error("Could not load organizations");
       setOrgs(await oRes.json());
       setResidents(rList);
+      setAdminEmail(me.email?.toLowerCase() || null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Load failed");
     }
@@ -58,10 +61,20 @@ export function PlatformAdminPanel({ token }: { token: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  const targetIsSelfAdmin =
+    !!adminEmail && planEmail.trim().toLowerCase() === adminEmail;
+
   async function grantPlan(e: FormEvent) {
     e.preventDefault();
+    if (targetIsSelfAdmin) {
+      setError(
+        "Platform admin already has full system access — no plan grant needed. Use a workspace staff email (e.g. lc1@…)."
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
+    setInfo(null);
     try {
       const res = await fetch(`${API_BASE}/api/v1/orgs/admin/set-plan`, {
         method: "POST",
@@ -77,7 +90,9 @@ export function PlatformAdminPanel({ token }: { token: string }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(formatApiError(data, "Grant failed"));
-      setInfo(`Granted ${plan} to ${data.email} for ${planDays} days`);
+      const daysLabel =
+        data.plan_expires_at == null ? "unlimited" : `${planDays} days`;
+      setInfo(`Granted ${data.plan} to ${data.email} (${daysLabel})`);
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Grant failed");
@@ -105,47 +120,65 @@ export function PlatformAdminPanel({ token }: { token: string }) {
         <h2 className="font-semibold text-violet-950">Platform admin</h2>
       </div>
       <p className="text-xs text-violet-800/80">
-        Global ops: organizations, residents, grant paid plans. You are not tied to a single workspace plan.
+        Full system access is tied to your <strong>admin role</strong>, not a paid plan. Grant plans only to
+        workspace staff / orgs (customers).
       </p>
 
       {error && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
       {info && <div className="text-sm text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">{info}</div>}
 
       <form onSubmit={grantPlan} className="bg-white border rounded-xl p-3 space-y-2">
-        <div className="text-xs font-semibold text-slate-500 uppercase">Grant plan</div>
+        <div className="text-xs font-semibold text-slate-500 uppercase">Grant plan to workspace staff</div>
         <input
           className="w-full border rounded-lg px-3 py-2 text-sm"
-          placeholder="Staff email (e.g. lc1@kcca.co.ug)"
+          placeholder="Staff email (e.g. lc1@kcca.co.ug) — not platform admin"
           value={planEmail}
           onChange={(e) => setPlanEmail(e.target.value)}
           required
         />
-        <div className="flex gap-2">
-          <select
-            className="border rounded-lg px-2 py-2 text-sm flex-1"
-            value={plan}
-            onChange={(e) => setPlan(e.target.value)}
-          >
-            <option value="free">free</option>
-            <option value="authority">authority</option>
-            <option value="enterprise">enterprise</option>
-          </select>
-          <input
-            type="number"
-            min={1}
-            max={3650}
-            className="border rounded-lg px-2 py-2 text-sm w-24"
-            value={planDays}
-            onChange={(e) => setPlanDays(Number(e.target.value) || 30)}
-          />
+        {targetIsSelfAdmin && (
+          <p className="text-xs text-amber-800 bg-amber-50 rounded-lg px-2 py-1.5">
+            That email is the platform admin. Access is already unlimited — pick an org staff email instead.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex-1 min-w-[7rem]">
+            <label className="text-[10px] uppercase text-slate-400 font-semibold">Plan</label>
+            <select
+              className="w-full border rounded-lg px-2 py-2 text-sm"
+              value={plan}
+              onChange={(e) => setPlan(e.target.value)}
+              disabled={targetIsSelfAdmin}
+            >
+              <option value="free">free</option>
+              <option value="authority">authority</option>
+              <option value="enterprise">enterprise</option>
+            </select>
+          </div>
+          <div className="w-24">
+            <label className="text-[10px] uppercase text-slate-400 font-semibold">Days</label>
+            <input
+              type="number"
+              min={1}
+              max={3650}
+              className="w-full border rounded-lg px-2 py-2 text-sm"
+              value={planDays}
+              onChange={(e) => setPlanDays(Number(e.target.value) || 30)}
+              disabled={targetIsSelfAdmin}
+              title="How many days this plan lasts"
+            />
+          </div>
           <button
             type="submit"
-            disabled={busy}
-            className="text-sm bg-violet-700 text-white rounded-lg px-3 py-2 font-medium"
+            disabled={busy || targetIsSelfAdmin}
+            className="text-sm bg-violet-700 text-white rounded-lg px-3 py-2 font-medium disabled:opacity-50"
           >
             Grant
           </button>
         </div>
+        <p className="text-[11px] text-slate-400">
+          Authority = paid workspace tools. Enterprise = same + higher limits (see docs). Days = subscription length.
+        </p>
       </form>
 
       <div>
@@ -174,11 +207,7 @@ export function PlatformAdminPanel({ token }: { token: string }) {
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <button
-            type="button"
-            onClick={() => load()}
-            className="text-sm border rounded-lg px-3 py-1.5"
-          >
+          <button type="button" onClick={() => load()} className="text-sm border rounded-lg px-3 py-1.5">
             Search
           </button>
         </div>
