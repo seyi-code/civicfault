@@ -1,41 +1,43 @@
-/** Queue report FormData metadata when offline; flush when online. */
+/** Offline report drafts for poor connectivity (meta only; photo re-picked on flush). */
 
-const KEY = "civicfault_offline_reports";
-
-export type QueuedReport = {
+export type OfflineDraft = {
   id: string;
-  createdAt: string;
-  // We cannot store File in JSON — keep description + coords; user re-attaches photo on flush if needed
   latitude: number;
   longitude: number;
   description?: string;
   org_slug?: string;
+  created_at: string;
 };
 
-export function listQueued(): QueuedReport[] {
+const KEY = "civicfault_offline_drafts";
+
+export function listDrafts(): OfflineDraft[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(KEY) || "[]");
+    const raw = localStorage.getItem(KEY);
+    return raw ? (JSON.parse(raw) as OfflineDraft[]) : [];
   } catch {
     return [];
   }
 }
 
-export function enqueueMeta(item: Omit<QueuedReport, "id" | "createdAt">) {
-  const list = listQueued();
-  list.push({
-    ...item,
-    id: `q_${Date.now()}`,
-    createdAt: new Date().toISOString(),
-  });
-  localStorage.setItem(KEY, JSON.stringify(list));
+export function saveDraft(draft: Omit<OfflineDraft, "id" | "created_at">): OfflineDraft {
+  const item: OfflineDraft = {
+    ...draft,
+    id: `d_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    created_at: new Date().toISOString(),
+  };
+  const next = [item, ...listDrafts()].slice(0, 20);
+  localStorage.setItem(KEY, JSON.stringify(next));
+  return item;
 }
 
-export function removeQueued(id: string) {
-  const list = listQueued().filter((x) => x.id !== id);
-  localStorage.setItem(KEY, JSON.stringify(list));
+export function removeDraft(id: string) {
+  const next = listDrafts().filter((d) => d.id !== id);
+  localStorage.setItem(KEY, JSON.stringify(next));
 }
 
 export function isOnline(): boolean {
-  return typeof navigator === "undefined" ? true : navigator.onLine;
+  if (typeof navigator === "undefined") return true;
+  return navigator.onLine;
 }

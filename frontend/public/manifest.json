@@ -1,12 +1,11 @@
 {
   "name": "CivicFault",
   "short_name": "CivicFault",
-  "description": "Report and track local infrastructure failures",
+  "description": "Community infrastructure fault reporting",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
+  "background_color": "#ffffff",
   "theme_color": "#f59e0b",
-  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "/icon-192.png",
