@@ -1,11 +1,13 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 
+const inter = Inter({ subsets: ["latin"] });
+
 export const metadata: Metadata = {
-  title: "CivicFault – Community Infrastructure Tracker",
-  description:
-    "Report and track local infrastructure failures. Photo + GPS + AI classification + public transparency dashboard.",
+  title: "CivicFault",
+  description: "Community infrastructure fault reporting",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -28,10 +30,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased">
+      <body className={`${inter.className} bg-slate-50 text-slate-900 min-h-screen`}>
         <SiteHeader />
-        <main>{children}</main>
-        <footer className="border-t border-slate-200 mt-16 py-8 text-center text-xs text-slate-400">
+        <main className="pb-16">{children}</main>
+        <footer className="text-center text-xs text-slate-400 py-6">
           CivicFault · Community-driven infrastructure transparency
         </footer>
       </body>
