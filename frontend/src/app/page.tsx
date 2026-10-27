@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Camera, MapPin, Loader2, CheckCircle2, WifiOff } from "lucide-react";
 import { createReport, mediaUrl, API_BASE } from "@/lib/api";
 import { enqueueMeta, isOnline, listQueued } from "@/lib/offlineQueue";
+import { FAULT_CATEGORIES, categoryLabel } from "@/lib/categories";
 import type { FaultReport } from "@/types";
 
 function ReportForm() {
@@ -15,6 +16,7 @@ function ReportForm() {
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,12 +92,15 @@ function ReportForm() {
       setError("Please choose a photo");
       return;
     }
+    if (!category) {
+      setError("Please select what type of fault this is");
+      return;
+    }
     if (!lat || !lng) {
       setError("Set location (Use my location or type coordinates)");
       return;
     }
 
-    // Offline: store metadata note — photos cannot be fully queued without IndexedDB binary storage yet
     if (!isOnline()) {
       enqueueMeta({
         latitude: parseFloat(lat),
@@ -114,6 +119,7 @@ function ReportForm() {
     form.append("latitude", lat);
     form.append("longitude", lng);
     form.append("file", file);
+    form.append("category", category);
     if (description.trim()) form.append("description", description.trim());
     if (orgSlug) form.append("org_slug", orgSlug);
 
@@ -123,8 +129,8 @@ function ReportForm() {
       setResult(data);
       setFile(null);
       setDescription("");
+      setCategory("");
     } catch (err: unknown) {
-      // Network failure mid-request → queue meta
       if (!isOnline()) {
         enqueueMeta({
           latitude: parseFloat(lat),
@@ -174,6 +180,30 @@ function ReportForm() {
           </label>
         </div>
 
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            What is the problem? <span className="text-red-500">*</span>
+          </label>
+          <select
+            required
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+          >
+            <option value="" disabled>
+              Select category…
+            </option>
+            {FAULT_CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-slate-400 mt-1">
+            You choose the category. Auto-detect is offline until a trained model is deployed.
+          </p>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Latitude</label>
@@ -221,7 +251,7 @@ function ReportForm() {
             <div><span className="text-slate-500">ID:</span> #{result.id}</div>
             <div>
               <span className="text-slate-500">Category:</span>{" "}
-              <span className="font-medium capitalize">{result.category.replace(/_/g, " ")}</span>
+              <span className="font-medium">{categoryLabel(result.category)}</span>
             </div>
             <div>
               <span className="text-slate-500">Status:</span> {result.status}
