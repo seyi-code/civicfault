@@ -20,7 +20,7 @@ from app.schemas.fault import (
     ReportEdit,
     UpvoteRequest,
 )
-from app.services.ml import pipeline
+from app.services.ml import pipeline, CANONICAL_CATEGORIES
 from app.services.clustering import assign_cluster
 from app.services.storage import save_upload
 from app.services.sla import hours_open, is_overdue
@@ -96,6 +96,7 @@ async def create_report(
     longitude: Annotated[float, Form(ge=-180, le=180)],
     file: Annotated[UploadFile, File()],
     description: Annotated[Optional[str], Form()] = None,
+    category: Annotated[Optional[str], Form()] = None,
     organization_id: Annotated[Optional[int], Form()] = None,
     org_slug: Annotated[Optional[str], Form()] = None,
     db: Session = Depends(get_db),
@@ -103,10 +104,17 @@ async def create_report(
 ):
     try:
         image_url, image_bytes = await save_upload(file)
-        category, confidence = pipeline.predict_category(image_bytes)
+
+        # User-selected category wins (Phase 0). Mock/AI is fallback only.
+        user_cat = (category or "").strip().lower().replace(" ", "_")
+        if user_cat in CANONICAL_CATEGORIES:
+            final_category = user_cat
+            confidence = None  # human-labeled — no AI %
+        else:
+            final_category, confidence = pipeline.predict_category(image_bytes)
 
         try:
-            cluster_id = assign_cluster(db, latitude, longitude, category)
+            cluster_id = assign_cluster(db, latitude, longitude, final_category)
         except Exception as exc:
             logger.warning("Clustering skipped: %s", exc)
             db.rollback()
@@ -122,7 +130,7 @@ async def create_report(
         address_label = await reverse_geocode(latitude, longitude)
 
         report = FaultReport(
-            category=category,
+            category=final_category,
             confidence=confidence,
             image_url=image_url,
             description=description,
@@ -297,6 +305,7 @@ def edit_report(
         report.description = data["description"]
     if "category" in data and data["category"]:
         report.category = data["category"]
+        report.confidence = None  # staff correction — not model score
     if "address_label" in data:
         report.address_label = data["address_label"]
     if "severity" in data:
