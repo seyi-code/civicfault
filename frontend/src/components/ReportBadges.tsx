@@ -5,12 +5,11 @@ import { AlertTriangle, Building2, Globe2, User, Sparkles } from "lucide-react";
 /**
  * STATUS = workflow (pending → resolved).
  * Filed By =
- *   Workspace — tagged to an org (org_slug / organization_id)
- *   Resident  — filed while logged in as resident (reporter_id)
- *   Community — guest / public, no org tag
+ *   Workspace — tagged to an org
+ *   Resident  — filed while logged in as resident
+ *   Community — guest / public
  *
  * Priority: Workspace > Resident > Community
- * (org-tagged reports stay Workspace even if a resident filed them)
  */
 export function filedByLabel(report: FaultReport): "Workspace" | "Resident" | "Community" {
   if (report.organization_id != null) return "Workspace";
@@ -26,6 +25,12 @@ export function ReportBadges({
   compact?: boolean;
 }) {
   const filedBy = filedByLabel(report);
+  // Mock classifier returns null confidence — never show a fake "AI 86%"
+  const showAi =
+    !compact &&
+    report.confidence != null &&
+    typeof report.confidence === "number" &&
+    report.confidence > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -77,10 +82,10 @@ export function ReportBadges({
         </span>
       )}
 
-      {!compact && report.confidence != null && (
+      {showAi && (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-slate-50 text-slate-600 border-slate-200">
           <Sparkles className="w-3 h-3" />
-          AI {Math.round(report.confidence * 100)}%
+          AI {Math.round(report.confidence! * 100)}%
         </span>
       )}
     </div>
