@@ -53,7 +53,7 @@ class ReportEdit(BaseModel):
         None,
         pattern=(
             "^(pothole|water_leak|blocked_drain|downed_power_line|"
-            "uncollected_waste|broken_streetlight|other)$"
+            "uncollected_waste|broken_streetlight|damaged_road_sign|other)$"
         ),
     )
     address_label: Optional[str] = Field(None, max_length=300)
